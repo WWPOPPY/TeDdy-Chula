@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Lock, Unlock, Eye, Settings, Play, Sparkles, Clock, AlertCircle, CheckCircle, ChevronRight, LayoutDashboard, LogOut, UserCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, Lock, Unlock, Eye, Settings, Play, Sparkles, Clock, AlertCircle, CheckCircle, ChevronRight, LogOut, UserCircle } from 'lucide-react';
 
 // --- 1. Mock Database Initialization (Local Storage Sync) ---
 console.log('[SYSTEM] บังคับใช้ระบบฐานข้อมูลจำลอง (Mock) เพื่อแก้ปัญหา Permissions');
 
 const db = {}; 
 const auth = {};
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'edtech-code-reveal-liquid';
+const appId = globalThis.__app_id || 'edtech-code-reveal-liquid';
 const assetUrl = (fileName) => `${import.meta.env.BASE_URL}${fileName}`;
 const LOGO_URL = assetUrl('logo.jpg'); // 📌 ใส่ชื่อไฟล์หรือลิงก์โลโก้ของงานที่นี่! (ไฟล์ต้องอยู่ในโฟลเดอร์ public)
 
 // Mock Auth API
 const signInAnonymously = async () => ({ user: { uid: 'anon' } });
-const signInWithCustomToken = async () => ({ user: { uid: 'custom' } });
 const onAuthStateChanged = (auth, cb) => {
   setTimeout(() => cb({ uid: 'mock-user' }), 100);
   return () => {};
@@ -686,14 +685,20 @@ function AdminDashboard({ gameState, appId }) {
 
 // --- SENIOR DASHBOARD (Liquid Widget) ---
 function SeniorDashboard({ gameState, appId, seniorId }) {
-  const [hints, setHints] = useState({ hint1: '', hint2: '', hint3: '' });
+  const [hintDraftsByCard, setHintDraftsByCard] = useState({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const myCard = Object.values(gameState.cards).find(c => c.seniorId === seniorId);
+  const fallbackHints = myCard ? { hint1: myCard.hint1, hint2: myCard.hint2, hint3: myCard.hint3 } : { hint1: '', hint2: '', hint3: '' };
+  const hints = myCard ? (hintDraftsByCard[myCard.id] || fallbackHints) : fallbackHints;
 
-  useEffect(() => {
-    if (myCard) setHints({ hint1: myCard.hint1, hint2: myCard.hint2, hint3: myCard.hint3 });
-  }, [myCard]);
+  const setHintValue = (key, value) => {
+    if (!myCard) return;
+    setHintDraftsByCard((prev) => ({
+      ...prev,
+      [myCard.id]: { ...(prev[myCard.id] || fallbackHints), [key]: value },
+    }));
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -745,7 +750,7 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
                     </span>
                   </label>
                   <textarea 
-                    value={hints[`hint${num}`]} onChange={(e) => setHints({...hints, [`hint${num}`]: e.target.value})}
+                    value={hints[`hint${num}`]} onChange={(e) => setHintValue(`hint${num}`, e.target.value)}
                     className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-4 min-h-[100px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none shadow-inner focus:shadow-[0_0_15px_rgba(255,255,255,0.05)]"
                     placeholder="แตะเพื่อพิมพ์คำใบ้..."
                   />
@@ -780,7 +785,7 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
     }
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     try { await updateDoc(docRef, { [`cards.${cardId}.juniorId`]: juniorId }); } 
-    catch(e) { setErrorMsg("เกิดข้อผิดพลาด"); setTimeout(() => setErrorMsg(''), 3000); }
+    catch (error) { console.error(error); setErrorMsg("เกิดข้อผิดพลาด"); setTimeout(() => setErrorMsg(''), 3000); }
   };
 
   const isHintUnlocked = (hintDateStr) => new Date().getTime() >= new Date(hintDateStr).getTime();
