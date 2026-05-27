@@ -96,6 +96,7 @@ const getInitialState = () => {
   const date1 = new Date(now); const date2 = new Date(now); date2.setDate(now.getDate() + 1); const date3 = new Date(now); date3.setDate(now.getDate() + 7);
   return {
     isSetupComplete: false, 
+    isDrawOpen: false,
     juniorsOnline: [],
     juniorsInfo: {}, 
     dates: { hint1: date1.toISOString(), hint2: date2.toISOString(), hint3: date3.toISOString() },
@@ -251,7 +252,7 @@ function LandingPage({ onEnter }) {
 
             <h2 className="text-sm md:text-base font-bold tracking-[0.2em] text-purple-400 uppercase mb-2 animate-slide-up" style={{ animationDelay: '0.1s' }}>Welcome to</h2>
             <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] animate-slide-up" style={{ animationDelay: '0.2s' }}>
-              Teddy Chula 19
+              Chulalongkorn University
             </h1>
           </div>
 
@@ -320,10 +321,10 @@ function LandingPage({ onEnter }) {
               <span className="text-xs font-semibold tracking-widest uppercase text-white/90">EdTech Chula</span>
             </div>
             <h1 className="text-4xl md:text-6xl font-black text-white tracking-tight leading-tight">
-              Liquid <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 animate-pulse">Card</span>
+              Teddy <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 animate-pulse">Chula 19</span>
             </h1>
             <p className="text-base md:text-xl text-white/60 font-medium">
-              ระบบสลากรหัสออนไลน์แบบ Real-time ขับเคลื่อนด้วยประสบการณ์ที่ลื่นไหล
+              ระบบการจับสายรหัส ที่เลิศที่สุดในศตวรรษ 
             </p>
           </div>
 
@@ -400,8 +401,8 @@ function LoginScreen({ onLogin, onBack }) {
 
             <div className="flex flex-col gap-4">
               {[{ id: 'admin', icon: <Settings/>, title: 'Admin', desc: 'สำหรับผู้ดูแลระบบ', color: 'text-red-400' },
-                { id: 'senior', icon: <Users/>, title: 'พี่รหัส (Senior)', desc: 'เข้าสู่ระบบเพื่อเขียนคำใบ้', color: 'text-blue-400' },
-                { id: 'junior', icon: <Sparkles/>, title: 'น้องรหัส (Junior)', desc: 'เข้าสู่ระบบเพื่อสุ่มไพ่รหัส', color: 'text-green-400' }
+                { id: 'senior', icon: <Users/>, title: 'พี่รหัส', desc: 'เข้าสู่ระบบเพื่อเขียนคำใบ้', color: 'text-blue-400' },
+                { id: 'junior', icon: <Sparkles/>, title: 'น้องรหัสสุดน่ารัก', desc: 'เข้าสู่ระบบเพื่อสุ่มไพ่รหัส', color: 'text-green-400' }
               ].map((btn, idx) => (
                 <button key={btn.id} onClick={() => setLoginMode(btn.id)} className="opacity-0 animate-slide-up p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center gap-4 transition-all hover:pl-6 group hover:shadow-[0_0_20px_rgba(255,255,255,0.1)]" style={{ animationDelay: `${0.3 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
                   <div className="w-12 h-12 rounded-full bg-black/40 flex items-center justify-center shadow-inner relative overflow-hidden">
@@ -474,6 +475,8 @@ function AdminDashboard({ gameState, appId }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const onlineCount = gameState.juniorsOnline?.length || 0;
   const isReadyToDraw = onlineCount === TOTAL_PLAYERS;
+  const isAdminDrawReleased = Boolean(gameState.isDrawOpen);
+  const isDrawStageOpen = isReadyToDraw || isAdminDrawReleased;
   const drawnCards = Object.values(gameState.cards).filter(c => c.juniorId !== null).length;
 
   const handleDateChange = (hint, value) => {
@@ -485,6 +488,11 @@ function AdminDashboard({ gameState, appId }) {
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     setDoc(docRef, getInitialState());
     setConfirmReset(false);
+  };
+
+  const handleOpenDrawStage = () => {
+    const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
+    updateDoc(docRef, { isDrawOpen: true });
   };
 
   return (
@@ -512,14 +520,32 @@ function AdminDashboard({ gameState, appId }) {
           <div className="flex flex-col items-center justify-center w-full">
             <div className="text-center mb-10 bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-[2rem] w-full max-w-3xl shadow-xl animate-scale-in">
               <h2 className="text-3xl md:text-4xl font-bold mb-4 tracking-tight transition-all">
-                {drawnCards === TOTAL_PLAYERS ? "เปิดไพ่ครบทุกคนแล้ว" : isReadyToDraw ? "สมรภูมิสลักไพ่" : "รอผู้เข้าร่วม"}
+                {drawnCards === TOTAL_PLAYERS ? "เปิดไพ่ครบทุกคนแล้ว" : isDrawStageOpen ? "สมรภูมิสลักไพ่" : "รอผู้เข้าร่วม"}
               </h2>
               <div className="inline-flex items-center gap-2 bg-black/40 px-4 py-2 rounded-full border border-white/10">
-                <div className={`w-2.5 h-2.5 rounded-full ${isReadyToDraw ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-orange-500 shadow-[0_0_10px_#f97316]'} animate-pulse`}></div>
+                <div className={`w-2.5 h-2.5 rounded-full ${isDrawStageOpen ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-orange-500 shadow-[0_0_10px_#f97316]'} animate-pulse`}></div>
                 <span className="text-sm font-bold text-white/80">{onlineCount} / {TOTAL_PLAYERS} ออนไลน์</span>
               </div>
+
+              {isAdminDrawReleased && !isReadyToDraw && (
+                <div className="mt-4 inline-flex items-center gap-2 bg-green-500/15 px-3 py-1.5 rounded-full border border-green-400/30 text-green-200 text-xs font-bold animate-fade-in">
+                  <Play className="w-3.5 h-3.5" />
+                  แอดมินเปิดสมรภูมิแล้ว (ก่อนครบ 10 คน)
+                </div>
+              )}
               
-              {isReadyToDraw && drawnCards < TOTAL_PLAYERS && (
+              {!isDrawStageOpen && drawnCards < TOTAL_PLAYERS && (
+                <div className="mt-6 animate-fade-in">
+                  <button
+                    onClick={handleOpenDrawStage}
+                    className="px-6 py-3 bg-white text-black rounded-full font-bold text-sm hover:bg-white/90 transition-all hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(255,255,255,0.3)]"
+                  >
+                    เปิดสมรภูมิสุ่มไพ่ก่อนครบ 10 คน
+                  </button>
+                </div>
+              )}
+
+              {isDrawStageOpen && drawnCards < TOTAL_PLAYERS && (
                 <div className="mt-8 max-w-xs mx-auto animate-fade-in">
                    <div className="flex justify-between text-xs text-white/50 font-bold mb-2 px-1"><span>เปิดไพ่แล้ว</span><span>{drawnCards}/{TOTAL_PLAYERS}</span></div>
                    <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden shadow-inner">
@@ -531,7 +557,7 @@ function AdminDashboard({ gameState, appId }) {
               )}
             </div>
 
-            {!isReadyToDraw ? (
+            {!isDrawStageOpen ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 w-full max-w-4xl">
                 {JUNIORS.map((j, idx) => {
                   const isOnline = gameState.juniorsOnline?.includes(j.id);
@@ -550,6 +576,7 @@ function AdminDashboard({ gameState, appId }) {
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4 w-full max-w-5xl">
                 {Object.values(gameState.cards).map((card, idx) => {
                   const juniorName = gameState.juniorsInfo?.[card.juniorId] || JUNIORS.find(j => j.id === card.juniorId)?.name;
+                  const juniorAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(juniorName || 'Junior')}&background=f3f4f6&color=111827&size=128&bold=true`;
                   return (
                     <div key={card.id} className="relative aspect-[2/3.2] perspective-1000 group opacity-0 animate-scale-in" style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'forwards' }}>
                       <div className={`w-full h-full transition-all duration-1000 transform-style-3d ${card.juniorId ? 'rotate-y-180' : 'animate-float'} `} style={{ animationDelay: `${idx * 0.05}s` }}>
@@ -565,16 +592,15 @@ function AdminDashboard({ gameState, appId }) {
                           <div className="absolute bottom-0 left-0 w-32 h-32 bg-pink-500/10 rounded-full blur-2xl -ml-10 -mb-10"></div>
                           
                           <img 
-                            src={SENIORS.find(s => s.id === card.seniorId)?.avatar} 
-                            onError={(e) => { e.target.onerror = null; e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(SENIORS.find(s => s.id === card.seniorId)?.name.match(/\((.*?)\)/)?.[1] || 'S')}&background=000&color=fff&size=128`; }}
+                            src={juniorAvatar}
                             className="w-16 h-16 rounded-full border border-black/10 mb-3 shadow-lg z-10 object-cover"
-                            alt="avatar"
+                            alt="junior avatar"
                           />
-                          <h3 className="font-bold text-lg text-black leading-tight z-10">{juniorName}</h3>
+                          <h3 className="font-bold text-lg text-black leading-tight z-10">{juniorName || 'ยังไม่มีผู้เลือก'}</h3>
                           
                           <div className="w-full mt-4 bg-black/5 rounded-xl p-3 border border-black/5 z-10">
-                            <p className="text-[10px] text-black/50 font-bold uppercase tracking-wider mb-1">เจ้าของไพ่ (พี่รหัส)</p>
-                            <p className="text-xs text-black font-semibold truncate">{SENIORS.find(s => s.id === card.seniorId)?.name}</p>
+                            <p className="text-[10px] text-black/50 font-bold uppercase tracking-wider mb-1">ผู้เลือกไพ่ (รุ่นน้อง)</p>
+                            <p className="text-xs text-black font-semibold truncate">{juniorName || 'ยังไม่มีผู้เลือก'}</p>
                           </div>
                         </div>
 
@@ -776,6 +802,8 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
   const [errorMsg, setErrorMsg] = useState('');
   const onlineCount = gameState.juniorsOnline?.length || 0;
   const isReadyToDraw = onlineCount === TOTAL_PLAYERS;
+  const isAdminDrawReleased = Boolean(gameState.isDrawOpen);
+  const canDrawCards = isReadyToDraw || isAdminDrawReleased;
   const myDrawnCard = Object.values(gameState.cards).find(c => c.juniorId === juniorId);
 
   const handleDrawCard = async (cardId) => {
@@ -852,7 +880,7 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
   }
 
   // STAGE 2: Drawing Room
-  if (isReadyToDraw) {
+  if (canDrawCards) {
     return (
       <div className="flex flex-col items-center pt-4 w-full relative">
         {errorMsg && (
@@ -912,7 +940,7 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
         
         <h2 className="text-3xl font-bold mb-2 text-white">ห้องพักคอย</h2>
         <p className="text-white/50 text-center text-sm mb-8 leading-relaxed">
-          รอเพื่อนเข้าร่วมให้ครบ<br/>ระบบจะเปิดให้อัตโนมัติ
+          รอแอดมินเปิดระบบสุ่มไพ่<br/>หรือรอผู้เข้าร่วมให้ครบ
         </p>
 
         <div className="w-full flex flex-col items-center gap-4">
