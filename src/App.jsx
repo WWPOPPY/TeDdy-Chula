@@ -187,7 +187,7 @@ export default function App() {
                   <div className={`w-2 h-2 rounded-full ${roleData.role === 'admin' ? 'bg-red-400' : roleData.role === 'senior' ? 'bg-blue-400' : 'bg-green-400'} shadow-[0_0_8px_currentColor] animate-pulse`}></div>
                   {roleData.nickname || roleData.name.split(' ')[0]}
                 </div>
-                <button onClick={handleLogout} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all backdrop-blur-md border border-white/10 text-white/70 hover:text-white group">
+                <button onClick={handleLogout} className="min-h-touch min-w-touch w-10 h-10 sm:w-8 sm:h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all backdrop-blur-md border border-white/10 text-white/70 hover:text-white group">
                   <LogOut className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
                 </button>
               </div>
@@ -343,7 +343,7 @@ function LandingPage({ onEnter }) {
 
           <button 
             onClick={onEnter}
-            className="mt-4 mb-20 px-10 py-4 bg-white/90 backdrop-blur-xl text-black font-bold text-lg rounded-full hover:bg-white hover:scale-105 transition-all duration-300 shadow-[0_0_40px_rgba(255,255,255,0.3)] flex items-center gap-2 group opacity-0 animate-slide-up"
+            className="mt-4 mb-20 px-10 py-4 bg-white/90 backdrop-blur-xl text-black font-bold text-lg rounded-full hover:bg-white hover:scale-105 transition-all duration-300 shadow-[0_0_40px_rgba(255,255,255,0.3)] flex items-center justify-center gap-2 group opacity-0 animate-slide-up min-h-touch"
             style={{ animationDelay: '0.9s', animationFillMode: 'forwards' }}
           >
             เข้าสู่ระบบ
@@ -391,7 +391,7 @@ function LoginScreen({ onLogin, onBack }) {
 
         {!loginMode ? (
           <div className="animate-fade-in">
-            <button onClick={onBack} className="absolute top-8 left-8 text-white/50 hover:text-white transition group flex items-center gap-1">
+            <button onClick={onBack} className="absolute top-4 left-4 text-white/50 hover:text-white transition group flex items-center gap-1 min-h-touch px-2 py-2 rounded-lg hover:bg-white/10">
                <ChevronRight className="w-4 h-4 rotate-180 group-hover:-translate-x-1 transition-transform"/> กลับ
             </button>
             <div className="text-center mb-10 pt-4">
@@ -404,19 +404,19 @@ function LoginScreen({ onLogin, onBack }) {
                 { id: 'senior', icon: <Users/>, title: 'พี่รหัส', desc: 'เข้าสู่ระบบเพื่อเขียนคำใบ้', color: 'text-blue-400' },
                 { id: 'junior', icon: <Sparkles/>, title: 'น้องรหัสสุดน่ารัก', desc: 'เข้าสู่ระบบเพื่อสุ่มไพ่รหัส', color: 'text-green-400' }
               ].map((btn, idx) => (
-                <button key={btn.id} onClick={() => setLoginMode(btn.id)} className="opacity-0 animate-slide-up p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center gap-4 transition-all hover:pl-6 group hover:shadow-[0_0_20px_rgba(255,255,255,0.1)]" style={{ animationDelay: `${0.3 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
-                  <div className="w-12 h-12 rounded-full bg-black/40 flex items-center justify-center shadow-inner relative overflow-hidden">
+                <button key={btn.id} onClick={() => setLoginMode(btn.id)} className="opacity-0 animate-slide-up p-4 sm:p-5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center gap-4 transition-all hover:pl-6 group hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] min-h-touch" style={{ animationDelay: `${0.3 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-black/40 flex items-center justify-center shadow-inner relative overflow-hidden flex-shrink-0">
                      <div className="absolute inset-0 bg-white/5 group-hover:bg-white/20 transition-colors"></div>
                      <div className={`relative z-10 ${btn.color} group-hover:scale-110 transition-transform`}>{btn.icon}</div>
                   </div>
-                  <div className="text-left"><h3 className="font-bold">{btn.title}</h3><p className="text-xs text-white/50">{btn.desc}</p></div>
+                  <div className="text-left"><h3 className="font-bold text-sm sm:text-base">{btn.title}</h3><p className="text-xs text-white/50">{btn.desc}</p></div>
                 </button>
               ))}
             </div>
           </div>
         ) : (
           <div className="animate-fade-in pt-4">
-            <button onClick={() => { setLoginMode(null); setError(''); setUsername(''); setPassword(''); setNickname(''); }} className="text-sm text-white/50 mb-6 hover:text-white transition flex items-center gap-1 group">
+            <button onClick={() => { setLoginMode(null); setError(''); setUsername(''); setPassword(''); setNickname(''); }} className="text-sm text-white/50 mb-6 hover:text-white transition flex items-center gap-1 group min-h-touch px-2 py-2">
               <ChevronRight className="w-4 h-4 rotate-180 group-hover:-translate-x-1 transition-transform"/> เปลี่ยนบัญชี
             </button>
             <h2 className="text-3xl font-bold mb-2 text-white animate-slide-up">
@@ -458,7 +458,7 @@ function LoginScreen({ onLogin, onBack }) {
                 </div>
               )}
               
-              <button type="submit" className="opacity-0 animate-slide-up w-full bg-white text-black font-bold py-4 rounded-2xl mt-4 transition-all hover:bg-gray-200 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] hover:scale-[1.02] active:scale-95" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
+              <button type="submit" className="opacity-0 animate-slide-up w-full bg-white text-black font-bold py-4 px-6 rounded-2xl mt-4 transition-all hover:bg-gray-200 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] hover:scale-[1.02] active:scale-95 min-h-touch" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
                 เข้าสู่ระบบ
               </button>
             </form>
@@ -507,7 +507,7 @@ function AdminDashboard({ gameState, appId }) {
             <button 
               key={tab.id}
               onClick={() => setActiveTab(tab.id)} 
-              className={`flex-1 flex items-center justify-center gap-2 whitespace-nowrap px-6 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 ${activeTab === tab.id ? 'bg-white text-black shadow-md scale-105' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+              className={`flex-1 flex items-center justify-center gap-2 whitespace-nowrap px-4 sm:px-6 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-all duration-300 min-h-touch ${activeTab === tab.id ? 'bg-white text-black shadow-md scale-105' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
             >
               {tab.icon} {tab.label}
             </button>
@@ -538,7 +538,7 @@ function AdminDashboard({ gameState, appId }) {
                 <div className="mt-6 animate-fade-in">
                   <button
                     onClick={handleOpenDrawStage}
-                    className="px-6 py-3 bg-white text-black rounded-full font-bold text-sm hover:bg-white/90 transition-all hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(255,255,255,0.3)]"
+                    className="px-6 py-4 sm:py-3 bg-white text-black rounded-full font-bold text-sm hover:bg-white/90 transition-all hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(255,255,255,0.3)] min-h-touch w-full sm:w-auto"
                   >
                     เปิดสมรภูมิสุ่มไพ่ก่อนครบ 10 คน
                   </button>
@@ -690,13 +690,13 @@ function AdminDashboard({ gameState, appId }) {
                  {confirmReset ? (
                    <div className="bg-red-500/10 p-5 rounded-2xl border border-red-500/30 flex flex-col gap-4 backdrop-blur-md animate-scale-in">
                      <p className="text-white font-bold text-center text-sm">รีเซ็ตข้อมูลทั้งหมดจริงหรือไม่?</p>
-                     <div className="flex gap-3">
-                       <button onClick={confirmResetAction} className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-bold transition text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">ยืนยัน</button>
-                       <button onClick={() => setConfirmReset(false)} className="flex-1 bg-white/10 hover:bg-white/20 py-3 rounded-xl transition text-sm font-bold">ยกเลิก</button>
+                     <div className="flex gap-3 flex-col sm:flex-row">
+                       <button onClick={confirmResetAction} className="flex-1 min-h-touch bg-red-500 hover:bg-red-600 text-white py-3 px-4 rounded-xl font-bold transition text-sm shadow-[0_0_15px_rgba(239,68,68,0.5)]">ยืนยัน</button>
+                       <button onClick={() => setConfirmReset(false)} className="flex-1 min-h-touch bg-white/10 hover:bg-white/20 py-3 px-4 rounded-xl transition text-sm font-bold">ยกเลิก</button>
                      </div>
                    </div>
                  ) : (
-                   <button onClick={() => setConfirmReset(true)} className="w-full bg-white/5 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 text-white/60 font-bold py-4 rounded-2xl transition-all border border-white/5 text-sm">
+                   <button onClick={() => setConfirmReset(true)} className="w-full min-h-touch bg-white/5 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 text-white/60 font-bold py-4 px-6 rounded-2xl transition-all border border-white/5 text-sm">
                      รีเซ็ตระบบเริ่มต้นใหม่
                    </button>
                  )}
@@ -786,7 +786,7 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
 
           <button 
             onClick={handleSave} disabled={saving}
-            className={`w-full py-4 rounded-2xl font-bold text-base transition-all mt-4 opacity-0 animate-slide-up ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md hover:scale-[1.02] active:scale-95'} flex justify-center items-center gap-2`}
+            className={`w-full py-4 px-6 rounded-2xl font-bold text-base transition-all mt-4 opacity-0 animate-slide-up min-h-touch ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md hover:scale-[1.02] active:scale-95'} flex justify-center items-center gap-2`}
             style={{ animationDelay: '0.6s', animationFillMode: 'forwards' }}
           >
             {saving ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div> : saved ? <><CheckCircle className="w-5 h-5 animate-scale-in"/> บันทึกสำเร็จ</> : 'บันทึกข้อมูล'}
