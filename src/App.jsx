@@ -473,6 +473,11 @@ function LoginScreen({ onLogin, onBack }) {
 function AdminDashboard({ gameState, appId }) {
   const [activeTab, setActiveTab] = useState('live');
   const [confirmReset, setConfirmReset] = useState(false);
+  const [editingCard, setEditingCard] = useState(null);
+  const [editingHints, setEditingHints] = useState({ hint1: '', hint2: '', hint3: '' });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  
   const onlineCount = gameState.juniorsOnline?.length || 0;
   const isReadyToDraw = onlineCount === TOTAL_PLAYERS;
   const isAdminDrawReleased = Boolean(gameState.isDrawOpen);
@@ -493,6 +498,54 @@ function AdminDashboard({ gameState, appId }) {
   const handleOpenDrawStage = () => {
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     updateDoc(docRef, { isDrawOpen: true });
+  };
+
+  const handleEditCard = (card) => {
+    setEditingCard(card);
+    setEditingHints({
+      hint1: card.hint1 || '',
+      hint2: card.hint2 || '',
+      hint3: card.hint3 || ''
+    });
+  };
+
+  const handleSaveHints = async () => {
+    if (!editingCard) return;
+    setSaving(true);
+    const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
+    try {
+      await updateDoc(docRef, {
+        [`cards.${editingCard.id}.hint1`]: editingHints.hint1,
+        [`cards.${editingCard.id}.hint2`]: editingHints.hint2,
+        [`cards.${editingCard.id}.hint3`]: editingHints.hint3
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      setEditingCard(null);
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
+  };
+
+  const handleDeleteHint = async (hintNum) => {
+    if (!editingCard) return;
+    setSaving(true);
+    const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
+    try {
+      await updateDoc(docRef, {
+        [`cards.${editingCard.id}.hint${hintNum}`]: `รอพี่รหัสมากรอกคำใบ้ที่ ${hintNum}...`
+      });
+      setEditingHints(prev => ({
+        ...prev,
+        [`hint${hintNum}`]: `รอพี่รหัสมากรอกคำใบ้ที่ ${hintNum}...`
+      }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      console.error(e);
+    }
+    setSaving(false);
   };
 
   return (
@@ -663,6 +716,13 @@ function AdminDashboard({ gameState, appId }) {
                           </div>
                         ))}
                      </div>
+
+                     <button 
+                       onClick={() => handleEditCard(card)}
+                       className="w-full mt-4 py-2 px-3 bg-white/10 hover:bg-white/20 text-white text-sm rounded-lg border border-white/20 transition-all font-semibold"
+                     >
+                       แก้ไขคำใบ้
+                     </button>
                    </div>
                  );
               })}
@@ -701,6 +761,89 @@ function AdminDashboard({ gameState, appId }) {
                    </button>
                  )}
                </div>
+            </div>
+          </div>
+        )}
+
+        {editingCard && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-white/10 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 max-w-2xl w-full shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-bold text-white">แก้ไขคำใบ้</h3>
+                <button 
+                  onClick={() => setEditingCard(null)}
+                  className="text-white/60 hover:text-white transition text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {SENIORS.map(senior => {
+                if (senior.id !== editingCard.seniorId) return null;
+                return (
+                  <div key={senior.id} className="mb-6">
+                    <div className="flex items-center gap-4 mb-6 pb-4 border-b border-white/10">
+                      <img 
+                        src={senior.avatar}
+                        onError={(e) => { e.target.onerror = null; e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(senior.name.match(/\((.*?)\)/)?.[1] || senior.name)}&background=fff&color=000&size=128`; }}
+                        alt="profile"
+                        className="w-16 h-16 rounded-full shadow-md object-cover"
+                      />
+                      <div>
+                        <h4 className="text-lg font-bold text-white">{senior.name}</h4>
+                        <p className="text-sm text-white/50">แก้ไขข้อมูลคำใบ้</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      {[1, 2, 3].map((num) => (
+                        <div key={num} className="flex flex-col gap-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-sm font-semibold text-white/80">คำใบ้รอบที่ {num}</label>
+                            <button 
+                              onClick={() => handleDeleteHint(num)}
+                              disabled={saving}
+                              className="text-xs px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/30 transition disabled:opacity-50"
+                            >
+                              ลบ
+                            </button>
+                          </div>
+                          <textarea 
+                            value={editingHints[`hint${num}`]}
+                            onChange={(e) => setEditingHints(prev => ({ ...prev, [`hint${num}`]: e.target.value }))}
+                            className="bg-black/20 backdrop-blur-md border border-white/10 rounded-xl p-3 min-h-[80px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none"
+                            placeholder={`พิมพ์คำใบ้รอบที่ ${num}...`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="flex gap-3 mt-8 pt-6 border-t border-white/10">
+                <button 
+                  onClick={() => setEditingCard(null)}
+                  className="flex-1 py-3 px-4 bg-white/10 hover:bg-white/20 text-white rounded-xl font-semibold transition"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  onClick={handleSaveHints}
+                  disabled={saving}
+                  className={`flex-1 py-3 px-4 rounded-xl font-semibold transition flex justify-center items-center gap-2 min-h-touch ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/20 hover:bg-white/30 text-white border border-white/30'}`}
+                >
+                  {saving ? (
+                    <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                  ) : saved ? (
+                    <>
+                      <CheckCircle className="w-5 h-5"/> บันทึกสำเร็จ
+                    </>
+                  ) : (
+                    'บันทึกข้อมูล'
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}
