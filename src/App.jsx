@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Lock, Unlock, Eye, Settings, Play, Sparkles, Clock, AlertCircle, CheckCircle, ChevronRight, LogOut, UserCircle } from 'lucide-react';
+import { Users, Lock, Unlock, Eye, Settings, Play, Sparkles, Clock, AlertCircle, CheckCircle, ChevronRight, LogOut, UserCircle, Plus, Minus } from 'lucide-react';
 
 // --- 1. Mock Database Initialization (Local Storage Sync) ---
 console.log('[SYSTEM] บังคับใช้ระบบฐานข้อมูลจำลอง (Mock) เพื่อแก้ปัญหา Permissions');
@@ -84,22 +84,135 @@ const JUNIORS = Array.from({ length: TOTAL_PLAYERS }, (_, i) => {
   };
 });
 
+const DEFAULT_HINT_COUNT = 3;
+const HINT_PLACEHOLDER_PREFIX = 'รอพี่รหัสมากรอกคำใบ้ที่';
+
+const createHintPlaceholder = (hintNumber) => `${HINT_PLACEHOLDER_PREFIX} ${hintNumber}...`;
+
+const createDefaultHintDate = (hintIndex, referenceDate = new Date()) => {
+  const offsets = [0, 1, 7];
+  const offset = offsets[hintIndex] ?? offsets[offsets.length - 1] + (hintIndex - offsets.length + 1);
+  const nextDate = new Date(referenceDate);
+  nextDate.setDate(referenceDate.getDate() + offset);
+  return nextDate.toISOString();
+};
+
+const createNextHintDate = (existingSchedule = []) => {
+  const lastDateString = [...existingSchedule].reverse().find(Boolean);
+  if (lastDateString) {
+    const lastDate = new Date(lastDateString);
+    if (!Number.isNaN(lastDate.getTime())) {
+      const nextDate = new Date(lastDate);
+      nextDate.setDate(lastDate.getDate() + 1);
+      return nextDate.toISOString();
+    }
+  }
+
+  return createDefaultHintDate(existingSchedule.length);
+};
+
+const createDefaultHintSchedule = (count = DEFAULT_HINT_COUNT) => Array.from({ length: count }, (_, index) => createDefaultHintDate(index));
+
+const createDefaultHints = (count = DEFAULT_HINT_COUNT) => Array.from({ length: count }, (_, index) => createHintPlaceholder(index + 1));
+
+const getLegacyHintEntries = (card = {}) => Object.keys(card)
+  .filter((key) => /^hint\d+$/.test(key))
+  .sort((left, right) => Number(left.replace('hint', '')) - Number(right.replace('hint', '')))
+  .map((key) => card[key]);
+
+const getLegacyHintSchedule = (rawSchedule) => {
+  if (Array.isArray(rawSchedule)) return rawSchedule.filter(Boolean);
+
+  if (rawSchedule && typeof rawSchedule === 'object') {
+    return Object.keys(rawSchedule)
+      .filter((key) => /^hint\d+$/.test(key))
+      .sort((left, right) => Number(left.replace('hint', '')) - Number(right.replace('hint', '')))
+      .map((key) => rawSchedule[key])
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const getLegacyHintCount = (cards = {}) => Object.values(cards).reduce((maxCount, card) => {
+  const count = Array.isArray(card?.hints)
+    ? card.hints.length
+    : Object.keys(card || {}).filter((key) => /^hint\d+$/.test(key)).length;
+  return Math.max(maxCount, count);
+}, 0);
+
+const normalizeHintArray = (card = {}, hintCount = DEFAULT_HINT_COUNT) => {
+  const sourceHints = Array.isArray(card.hints) ? card.hints : getLegacyHintEntries(card);
+
+  return Array.from({ length: hintCount }, (_, index) => {
+    const hint = sourceHints[index];
+    return typeof hint === 'string' && hint.trim() ? hint : createHintPlaceholder(index + 1);
+  });
+};
+
+const normalizeHintSchedule = (rawSchedule, hintCount = DEFAULT_HINT_COUNT) => {
+  const sourceSchedule = getLegacyHintSchedule(rawSchedule);
+
+  return Array.from({ length: hintCount }, (_, index) => {
+    const dateValue = sourceSchedule[index];
+    return dateValue || createDefaultHintDate(index);
+  });
+};
+
+const toDateTimeLocalValue = (dateStr) => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return '';
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+};
+
+const formatHintDateLabel = (dateStr) => {
+  if (!dateStr) return 'ยังไม่กำหนด';
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return 'ยังไม่กำหนด';
+  return date.toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
+
+const normalizeGameState = (rawState = {}) => {
+  const rawHintSchedule = rawState.hintSchedule ?? rawState.dates;
+  const hintCount = Math.max(
+    DEFAULT_HINT_COUNT,
+    getLegacyHintSchedule(rawHintSchedule).length,
+    getLegacyHintCount(rawState.cards || {})
+  );
+
+  const cards = Object.fromEntries(
+    Object.entries(rawState.cards || {}).map(([cardId, card]) => {
+      const normalizedCard = { ...card, hints: normalizeHintArray(card, hintCount) };
+      for (let index = 1; index <= hintCount; index += 1) {
+        delete normalizedCard[`hint${index}`];
+      }
+      return [cardId, normalizedCard];
+    })
+  );
+
+  return {
+    ...rawState,
+    hintSchedule: normalizeHintSchedule(rawHintSchedule, hintCount),
+    cards,
+  };
+};
+
 const getInitialState = () => {
   const cards = {};
   for (let i = 1; i <= TOTAL_PLAYERS; i++) {
     cards[`card_${i}`] = {
       id: `card_${i}`, seniorId: `s${i}`, juniorId: null,
-      hint1: 'รอพี่รหัสมากรอกคำใบ้ที่ 1...', hint2: 'รอพี่รหัสมากรอกคำใบ้ที่ 2...', hint3: 'รอพี่รหัสมากรอกคำใบ้ที่ 3...',
+      hints: createDefaultHints(),
     };
   }
-  const now = new Date();
-  const date1 = new Date(now); const date2 = new Date(now); date2.setDate(now.getDate() + 1); const date3 = new Date(now); date3.setDate(now.getDate() + 7);
   return {
     isSetupComplete: false, 
     isDrawOpen: false,
     juniorsOnline: [],
     juniorsInfo: {}, 
-    dates: { hint1: date1.toISOString(), hint2: date2.toISOString(), hint3: date3.toISOString() },
+    hintSchedule: createDefaultHintSchedule(),
     cards
   };
 };
@@ -130,7 +243,7 @@ export default function App() {
     };
     initDoc();
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) setGameState(docSnap.data());
+      if (docSnap.exists()) setGameState(normalizeGameState(docSnap.data()));
     });
     return () => unsubscribe();
   }, [user]);
@@ -474,9 +587,11 @@ function AdminDashboard({ gameState, appId }) {
   const [activeTab, setActiveTab] = useState('live');
   const [confirmReset, setConfirmReset] = useState(false);
   const [editingCard, setEditingCard] = useState(null);
-  const [editingHints, setEditingHints] = useState({ hint1: '', hint2: '', hint3: '' });
+  const [editingHints, setEditingHints] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const hintSchedule = gameState.hintSchedule?.length ? gameState.hintSchedule : createDefaultHintSchedule();
+  const hintCount = hintSchedule.length || DEFAULT_HINT_COUNT;
   
   const onlineCount = gameState.juniorsOnline?.length || 0;
   const isReadyToDraw = onlineCount === TOTAL_PLAYERS;
@@ -484,9 +599,20 @@ function AdminDashboard({ gameState, appId }) {
   const isDrawStageOpen = isReadyToDraw || isAdminDrawReleased;
   const drawnCards = Object.values(gameState.cards).filter(c => c.juniorId !== null).length;
 
-  const handleDateChange = (hint, value) => {
+  const flashSaved = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleDateChange = (index, value) => {
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
-    updateDoc(docRef, { [`dates.${hint}`]: new Date(value).toISOString() });
+    const updatedSchedule = [...hintSchedule];
+    const parsedDate = value ? new Date(value) : null;
+    updatedSchedule[index] = parsedDate && !Number.isNaN(parsedDate.getTime())
+      ? parsedDate.toISOString()
+      : createDefaultHintDate(index);
+    updateDoc(docRef, { hintSchedule: updatedSchedule });
+    flashSaved();
   };
 
   const confirmResetAction = () => {
@@ -502,11 +628,7 @@ function AdminDashboard({ gameState, appId }) {
 
   const handleEditCard = (card) => {
     setEditingCard(card);
-    setEditingHints({
-      hint1: card.hint1 || '',
-      hint2: card.hint2 || '',
-      hint3: card.hint3 || ''
-    });
+    setEditingHints(Array.isArray(card.hints) ? [...card.hints] : normalizeHintArray(card, hintCount));
   };
 
   const handleSaveHints = async () => {
@@ -514,10 +636,9 @@ function AdminDashboard({ gameState, appId }) {
     setSaving(true);
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     try {
+      const normalizedHints = normalizeHintArray({ hints: editingHints }, hintCount);
       await updateDoc(docRef, {
-        [`cards.${editingCard.id}.hint1`]: editingHints.hint1,
-        [`cards.${editingCard.id}.hint2`]: editingHints.hint2,
-        [`cards.${editingCard.id}.hint3`]: editingHints.hint3
+        [`cards.${editingCard.id}.hints`]: normalizedHints
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -528,24 +649,70 @@ function AdminDashboard({ gameState, appId }) {
     setSaving(false);
   };
 
-  const handleDeleteHint = async (hintNum) => {
+  const handleClearHint = async (hintIndex) => {
     if (!editingCard) return;
     setSaving(true);
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     try {
+      const updatedHints = [...editingHints];
+      updatedHints[hintIndex] = createHintPlaceholder(hintIndex + 1);
       await updateDoc(docRef, {
-        [`cards.${editingCard.id}.hint${hintNum}`]: `รอพี่รหัสมากรอกคำใบ้ที่ ${hintNum}...`
+        [`cards.${editingCard.id}.hints`]: updatedHints
       });
-      setEditingHints(prev => ({
-        ...prev,
-        [`hint${hintNum}`]: `รอพี่รหัสมากรอกคำใบ้ที่ ${hintNum}...`
-      }));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      setEditingHints(updatedHints);
+      flashSaved();
     } catch (e) {
       console.error(e);
     }
     setSaving(false);
+  };
+
+  const handleAddHintRound = async () => {
+    const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
+    const updatedSchedule = [...hintSchedule, createNextHintDate(hintSchedule)];
+    const updatedCards = Object.fromEntries(
+      Object.entries(gameState.cards).map(([cardId, card]) => {
+        const currentHints = normalizeHintArray(card, hintCount);
+        return [cardId, { ...card, hints: [...currentHints, createHintPlaceholder(updatedSchedule.length)] }];
+      })
+    );
+
+    try {
+      await updateDoc(docRef, {
+        hintSchedule: updatedSchedule,
+        cards: updatedCards
+      });
+      setEditingCard(null);
+      setEditingHints([]);
+      flashSaved();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleRemoveHintRound = async (hintIndex) => {
+    if (hintSchedule.length <= 1) return;
+
+    const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
+    const updatedSchedule = hintSchedule.filter((_, index) => index !== hintIndex);
+    const updatedCards = Object.fromEntries(
+      Object.entries(gameState.cards).map(([cardId, card]) => {
+        const currentHints = normalizeHintArray(card, hintSchedule.length);
+        return [cardId, { ...card, hints: currentHints.filter((_, index) => index !== hintIndex) }];
+      })
+    );
+
+    try {
+      await updateDoc(docRef, {
+        hintSchedule: updatedSchedule,
+        cards: updatedCards
+      });
+      setEditingCard(null);
+      setEditingHints([]);
+      flashSaved();
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   return (
@@ -675,10 +842,10 @@ function AdminDashboard({ gameState, appId }) {
               {SENIORS.map((senior, idx) => {
                  const card = Object.values(gameState.cards).find(c => c.seniorId === senior.id);
                  if (!card) return null;
-                 const isHint1Done = card.hint1 && !card.hint1.startsWith('รอพี่รหัส');
-                 const isHint2Done = card.hint2 && !card.hint2.startsWith('รอพี่รหัส');
-                 const isHint3Done = card.hint3 && !card.hint3.startsWith('รอพี่รหัส');
-                 const allDone = isHint1Done && isHint2Done && isHint3Done;
+                 const cardHints = Array.isArray(card.hints) ? card.hints : normalizeHintArray(card, hintCount);
+                 const allDone = cardHints.every((hint, hintIndex) => {
+                   return Boolean(hint && hint.trim() && hint !== createHintPlaceholder(hintIndex + 1));
+                 });
                  const pairedJunior = card.juniorId ? (gameState.juniorsInfo?.[card.juniorId] || "ได้การ์ดแล้ว") : "ยังไม่มีคนสุ่ม";
 
                  return (
@@ -705,14 +872,10 @@ function AdminDashboard({ gameState, appId }) {
                      </div>
                      
                      <div className="space-y-2 mt-2">
-                        {[
-                          { done: isHint1Done, label: '1', text: card.hint1 },
-                          { done: isHint2Done, label: '2', text: card.hint2 },
-                          { done: isHint3Done, label: '3', text: card.hint3 }
-                        ].map((hint, i) => (
+                        {cardHints.map((hint, i) => (
                           <div key={i} className="flex gap-3 text-sm items-start">
-                            <span className={`w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold transition-colors ${hint.done ? 'bg-white/20 text-white' : 'bg-black/40 text-white/30'}`}>{hint.label}</span>
-                            <span className={`line-clamp-1 transition-colors ${hint.done ? 'text-white/80' : 'text-white/30 italic'}`}>{hint.text}</span>
+                            <span className={`w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold transition-colors ${hint && hint.trim() && hint !== createHintPlaceholder(i + 1) ? 'bg-white/20 text-white' : 'bg-black/40 text-white/30'}`}>{i + 1}</span>
+                            <span className={`line-clamp-1 transition-colors ${hint && hint.trim() && hint !== createHintPlaceholder(i + 1) ? 'text-white/80' : 'text-white/30 italic'}`}>{hint}</span>
                           </div>
                         ))}
                      </div>
@@ -731,15 +894,34 @@ function AdminDashboard({ gameState, appId }) {
         ) : (
           <div className="bg-white/10 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 max-w-xl mx-auto w-full shadow-2xl animate-scale-in">
             <h3 className="text-3xl font-bold mb-8 text-white">ตั้งค่าเวลา</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+              <p className="text-white/50 text-sm">จัดการจำนวนรอบคำใบ้และกำหนดเวลาเปิดของแต่ละรอบ</p>
+              <button
+                onClick={handleAddHintRound}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-white text-black font-bold text-sm hover:bg-white/90 transition-all min-h-touch"
+              >
+                <Plus className="w-4 h-4" /> เพิ่มรอบคำใบ้
+              </button>
+            </div>
             <div className="space-y-5">
-               {[1, 2, 3].map((num, idx) => {
-                 const dateStr = gameState.dates[`hint${num}`];
-                 const localDateStr = dateStr ? new Date(new Date(dateStr).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+               {hintSchedule.map((dateStr, idx) => {
+                 const localDateStr = toDateTimeLocalValue(dateStr);
                  return (
-                   <div key={num} className="opacity-0 animate-slide-up bg-black/20 p-5 rounded-2xl border border-white/5 flex flex-col gap-2 hover:bg-black/30 transition-colors" style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'forwards' }}>
-                      <label className="text-sm font-semibold text-white/60">เวลาเปิดคำใบ้รอบที่ {num}</label>
-                      <input 
-                        type="datetime-local" value={localDateStr} onChange={(e) => handleDateChange(`hint${num}`, e.target.value)}
+                   <div key={idx} className="opacity-0 animate-slide-up bg-black/20 p-5 rounded-2xl border border-white/5 flex flex-col gap-3 hover:bg-black/30 transition-colors" style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'forwards' }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <label className="text-sm font-semibold text-white/60">เวลาเปิดคำใบ้รอบที่ {idx + 1}</label>
+                        <button
+                          onClick={() => handleRemoveHintRound(idx)}
+                          disabled={hintSchedule.length <= 1}
+                          className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-bold transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Minus className="w-3.5 h-3.5" /> ลบรอบ
+                        </button>
+                      </div>
+                      <input
+                        type="datetime-local"
+                        value={localDateStr}
+                        onChange={(e) => handleDateChange(idx, e.target.value)}
                         className="bg-white/5 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-white/30 font-medium focus:bg-white/10 transition-colors"
                       />
                    </div>
@@ -778,10 +960,13 @@ function AdminDashboard({ gameState, appId }) {
                 </button>
               </div>
 
-              {SENIORS.map(senior => {
-                if (senior.id !== editingCard.seniorId) return null;
+              {(() => {
+                const senior = SENIORS.find((item) => item.id === editingCard.seniorId);
+                if (!senior) return null;
+                const cardHints = Array.isArray(editingHints) ? editingHints : normalizeHintArray(editingCard, hintCount);
+
                 return (
-                  <div key={senior.id} className="mb-6">
+                  <div className="mb-6">
                     <div className="flex items-center gap-4 mb-6 pb-4 border-b border-white/10">
                       <img 
                         src={senior.avatar}
@@ -796,30 +981,34 @@ function AdminDashboard({ gameState, appId }) {
                     </div>
 
                     <div className="space-y-4">
-                      {[1, 2, 3].map((num) => (
-                        <div key={num} className="flex flex-col gap-2">
-                          <div className="flex justify-between items-center">
-                            <label className="text-sm font-semibold text-white/80">คำใบ้รอบที่ {num}</label>
+                      {cardHints.map((hintText, index) => (
+                        <div key={index} className="flex flex-col gap-2">
+                          <div className="flex justify-between items-center gap-3">
+                            <label className="text-sm font-semibold text-white/80">คำใบ้รอบที่ {index + 1}</label>
                             <button 
-                              onClick={() => handleDeleteHint(num)}
+                              onClick={() => handleClearHint(index)}
                               disabled={saving}
                               className="text-xs px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/30 transition disabled:opacity-50"
                             >
-                              ลบ
+                              ล้าง
                             </button>
                           </div>
                           <textarea 
-                            value={editingHints[`hint${num}`]}
-                            onChange={(e) => setEditingHints(prev => ({ ...prev, [`hint${num}`]: e.target.value }))}
+                            value={hintText}
+                            onChange={(e) => setEditingHints((prev) => {
+                              const nextHints = [...prev];
+                              nextHints[index] = e.target.value;
+                              return nextHints;
+                            })}
                             className="bg-black/20 backdrop-blur-md border border-white/10 rounded-xl p-3 min-h-[80px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none"
-                            placeholder={`พิมพ์คำใบ้รอบที่ ${num}...`}
+                            placeholder={`พิมพ์คำใบ้รอบที่ ${index + 1}...`}
                           />
                         </div>
                       ))}
                     </div>
                   </div>
                 );
-              })}
+              })()}
 
               <div className="flex gap-3 mt-8 pt-6 border-t border-white/10">
                 <button 
@@ -854,26 +1043,30 @@ function AdminDashboard({ gameState, appId }) {
 
 // --- SENIOR DASHBOARD (Liquid Widget) ---
 function SeniorDashboard({ gameState, appId, seniorId }) {
-  const [hintDraftsByCard, setHintDraftsByCard] = useState({});
+  const [hintDrafts, setHintDrafts] = useState([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const myCard = Object.values(gameState.cards).find(c => c.seniorId === seniorId);
-  const fallbackHints = myCard ? { hint1: myCard.hint1, hint2: myCard.hint2, hint3: myCard.hint3 } : { hint1: '', hint2: '', hint3: '' };
-  const hints = myCard ? (hintDraftsByCard[myCard.id] || fallbackHints) : fallbackHints;
+  const hintSchedule = gameState.hintSchedule?.length ? gameState.hintSchedule : createDefaultHintSchedule();
+  const hintCount = hintSchedule.length || myCard?.hints?.length || DEFAULT_HINT_COUNT;
+  const currentHints = myCard ? (Array.isArray(myCard.hints) ? myCard.hints : normalizeHintArray(myCard, hintCount)) : [];
+  const hints = myCard ? (hintDrafts.length === currentHints.length ? hintDrafts : currentHints) : [];
 
-  const setHintValue = (key, value) => {
-    if (!myCard) return;
-    setHintDraftsByCard((prev) => ({
-      ...prev,
-      [myCard.id]: { ...(prev[myCard.id] || fallbackHints), [key]: value },
-    }));
+  const setHintValue = (index, value) => {
+    setHintDrafts((prev) => {
+      const nextHints = [...prev];
+      nextHints[index] = value;
+      return nextHints;
+    });
   };
 
   const handleSave = async () => {
+    if (!myCard) return;
     setSaving(true);
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     try {
-      await updateDoc(docRef, { [`cards.${myCard.id}.hint1`]: hints.hint1, [`cards.${myCard.id}.hint2`]: hints.hint2, [`cards.${myCard.id}.hint3`]: hints.hint3 });
+      const normalizedHints = normalizeHintArray({ hints }, hintCount);
+      await updateDoc(docRef, { [`cards.${myCard.id}.hints`]: normalizedHints });
       setSaved(true); setTimeout(() => setSaved(false), 3000);
     } catch (e) { console.error(e); }
     setSaving(false);
@@ -903,25 +1096,25 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
         )}
 
         <div className="space-y-5 relative z-10">
-          {[1, 2, 3].map((num, idx) => {
-             const hintDateStr = gameState.dates[`hint${num}`];
-             const hintDate = hintDateStr ? new Date(hintDateStr).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) : 'ยังไม่กำหนด';
+          {hints.map((hintText, idx) => {
+             const hintDateStr = hintSchedule[idx];
+             const hintDate = formatHintDateLabel(hintDateStr);
 
              return (
-               <div key={num} className="flex flex-col gap-2 opacity-0 animate-slide-up" style={{ animationDelay: `${0.3 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
+               <div key={idx} className="flex flex-col gap-2 opacity-0 animate-slide-up" style={{ animationDelay: `${0.3 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
                   <label className="font-semibold flex items-center justify-between text-white/80 text-sm pl-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">{num}</div>
-                      รอบที่ {num}
+                      <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">{idx + 1}</div>
+                      รอบที่ {idx + 1}
                     </div>
                     <span className="text-[10px] text-white/50 bg-black/20 px-2.5 py-1 rounded-full border border-white/5">
                       เปิด: {hintDate}
                     </span>
                   </label>
                   <textarea 
-                    value={hints[`hint${num}`]} onChange={(e) => setHintValue(`hint${num}`, e.target.value)}
+                    value={hintText} onChange={(e) => setHintValue(idx, e.target.value)}
                     className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-4 min-h-[100px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none shadow-inner focus:shadow-[0_0_15px_rgba(255,255,255,0.05)]"
-                    placeholder="แตะเพื่อพิมพ์คำใบ้..."
+                    placeholder={`แตะเพื่อพิมพ์คำใบ้รอบที่ ${idx + 1}...`}
                   />
                </div>
              );
@@ -948,6 +1141,8 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
   const isAdminDrawReleased = Boolean(gameState.isDrawOpen);
   const canDrawCards = isReadyToDraw || isAdminDrawReleased;
   const myDrawnCard = Object.values(gameState.cards).find(c => c.juniorId === juniorId);
+  const myHints = myDrawnCard?.hints || [];
+  const hintSchedule = gameState.hintSchedule?.length ? gameState.hintSchedule : createDefaultHintSchedule();
 
   const handleDrawCard = async (cardId) => {
     if (myDrawnCard) return;
@@ -959,7 +1154,12 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
     catch (error) { console.error(error); setErrorMsg("เกิดข้อผิดพลาด"); setTimeout(() => setErrorMsg(''), 3000); }
   };
 
-  const isHintUnlocked = (hintDateStr) => new Date().getTime() >= new Date(hintDateStr).getTime();
+  const isHintUnlocked = (hintDateStr) => {
+    if (!hintDateStr) return false;
+    const hintDate = new Date(hintDateStr);
+    if (Number.isNaN(hintDate.getTime())) return false;
+    return new Date().getTime() >= hintDate.getTime();
+  };
 
   if (myDrawnCard) {
     return (
@@ -987,25 +1187,26 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
 
           {/* Hint Widgets (Stack) */}
           <div className="w-full md:w-2/3 flex flex-col gap-4">
-             {[1, 2, 3].map((num, idx) => {
-               const unlocked = isHintUnlocked(gameState.dates[`hint${num}`]);
-               const hintDate = new Date(gameState.dates[`hint${num}`]).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' });
+             {myHints.map((hintText, idx) => {
+               const hintDateStr = hintSchedule[idx];
+               const unlocked = hintDateStr ? isHintUnlocked(hintDateStr) : false;
+               const hintDate = formatHintDateLabel(hintDateStr);
                
                return (
-                 <div key={num} className={`opacity-0 animate-slide-up p-6 rounded-[2rem] relative overflow-hidden transition-all duration-500 backdrop-blur-2xl border ${unlocked ? 'bg-white/10 border-white/20 shadow-lg hover:bg-white/15' : 'bg-black/20 border-white/5 opacity-70'}`} style={{ animationDelay: `${0.2 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
+                 <div key={idx} className={`opacity-0 animate-slide-up p-6 rounded-[2rem] relative overflow-hidden transition-all duration-500 backdrop-blur-2xl border ${unlocked ? 'bg-white/10 border-white/20 shadow-lg hover:bg-white/15' : 'bg-black/20 border-white/5 opacity-70'}`} style={{ animationDelay: `${0.2 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
                     <div className="flex justify-between items-center mb-4">
                       <h4 className={`font-semibold flex items-center gap-2 text-sm transition-colors ${unlocked ? 'text-white' : 'text-white/40'}`}>
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${unlocked ? 'bg-white/20' : 'bg-black/50'}`}>
                           {unlocked ? <Unlock className="w-3 h-3 animate-scale-in"/> : <Lock className="w-3 h-3"/>}
                         </div>
-                        คำใบ้ที่ {num}
+                        คำใบ้ที่ {idx + 1}
                       </h4>
                       <span className="text-[10px] uppercase font-bold text-white/30 tracking-wider">{hintDate}</span>
                     </div>
 
                     <div className="relative">
                       {unlocked ? (
-                        <p className="text-lg text-white/90 leading-relaxed font-medium animate-fade-in">{myDrawnCard[`hint${num}`]}</p>
+                        <p className="text-lg text-white/90 leading-relaxed font-medium animate-fade-in">{hintText}</p>
                       ) : (
                         <div className="flex items-center gap-3 py-2">
                            <Lock className="text-white/20 w-5 h-5"/>
