@@ -1148,20 +1148,28 @@ function AdminDashboard({ gameState, appId }) {
 
 // --- SENIOR DASHBOARD (Liquid Widget) ---
 function SeniorDashboard({ gameState, appId, seniorId }) {
-  const [hintDrafts, setHintDrafts] = useState([]);
+  const [hintDraftsByCard, setHintDraftsByCard] = useState({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const myCard = Object.values(gameState.cards).find(c => c.seniorId === seniorId);
   const hintSchedule = gameState.hintSchedule?.length ? gameState.hintSchedule : createDefaultHintSchedule();
   const hintCount = hintSchedule.length || myCard?.hints?.length || DEFAULT_HINT_COUNT;
   const currentHints = myCard ? (Array.isArray(myCard.hints) ? myCard.hints : normalizeHintArray(myCard, hintCount)) : [];
-  const hints = myCard ? (hintDrafts.length === currentHints.length ? hintDrafts : currentHints) : [];
+  const currentHintsSignature = currentHints.join('\u0001');
+  const draftEntry = myCard ? hintDraftsByCard[myCard.id] : null;
+  const hints = myCard ? (draftEntry?.signature === currentHintsSignature ? draftEntry.values : currentHints) : [];
 
   const setHintValue = (index, value) => {
-    setHintDrafts((prev) => {
-      const nextHints = [...prev];
+    if (!myCard) return;
+    setHintDraftsByCard((prev) => {
+      const currentEntry = prev[myCard.id];
+      const baseHints = currentEntry?.signature === currentHintsSignature ? currentEntry.values : currentHints;
+      const nextHints = [...baseHints];
       nextHints[index] = value;
-      return nextHints;
+      return {
+        ...prev,
+        [myCard.id]: { signature: currentHintsSignature, values: nextHints },
+      };
     });
   };
 
@@ -1173,6 +1181,11 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
       const normalizedHints = normalizeHintArray({ hints }, hintCount);
       await updateDoc(docRef, { [`cards.${myCard.id}.hints`]: normalizedHints });
       setSaved(true); setTimeout(() => setSaved(false), 3000);
+      setHintDraftsByCard((prev) => {
+        const nextDrafts = { ...prev };
+        delete nextDrafts[myCard.id];
+        return nextDrafts;
+      });
     } catch (e) { console.error(e); }
     setSaving(false);
   };
