@@ -245,7 +245,7 @@ textarea {
 
   /* Improve card sizing on mobile */
   .rounded-\[2rem\],
-  .rounded-\[2.5rem\],
+  .rounded-\[2rem\],
   .rounded-\[3rem\] {
     border-radius: 1.25rem;
   }
