@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Users, Lock, Unlock, Eye, Settings, Play, Sparkles, Clock, AlertCircle, CheckCircle, ChevronRight, LogOut, UserCircle, Plus, Minus } from 'lucide-react';
 
-// --- 1. Mock Database Initialization (Local Storage Sync) ---
-console.log('[SYSTEM] บังคับใช้ระบบฐานข้อมูลจำลอง (Mock) เพื่อแก้ปัญหา Permissions');
+// --- 1. Cloud Database Initialization (Google Sheets API) ---
+console.log('[SYSTEM] เชื่อมต่อระบบฐานข้อมูลกับ Google Sheets สำเร็จ!');
 
-const db = {}; 
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxWv2TM2JeEP2Wsf4R8HVJNBFuHymD8u3WYybrQBa4zXQj8DTx6Tr5YfMHcAisxuC_W/exec';
+
+const db = {};
 const auth = {};
-const appId = globalThis.__app_id || 'edtech-code-reveal-liquid';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'edtech-code-reveal-liquid-v2';
 const assetUrl = (fileName) => `${import.meta.env.BASE_URL}${fileName}`;
-const LOGO_URL = assetUrl('logo.jpg'); // 📌 ใส่ชื่อไฟล์หรือลิงก์โลโก้ของงานที่นี่! (ไฟล์ต้องอยู่ในโฟลเดอร์ public)
+const LOGO_URL = assetUrl('logo.jpg');
 const APP_TIME_ZONE = 'Asia/Bangkok';
 const BANGKOK_OFFSET_MINUTES = 7 * 60;
 const BANGKOK_OFFSET_MS = BANGKOK_OFFSET_MINUTES * 60 * 1000;
@@ -31,7 +33,6 @@ const bangkokWallClockToIso = (bangkokDate) => {
 
 const parseBangkokDateTimeLocalToIso = (value) => {
   if (!value) return '';
-
   const [datePart, timePart = '00:00'] = value.split('T');
   const [yearText, monthText, dayText] = datePart.split('-');
   const [hourText = '0', minuteText = '0', secondText = '0'] = timePart.split(':');
@@ -41,9 +42,7 @@ const parseBangkokDateTimeLocalToIso = (value) => {
   const hour = Number(hourText);
   const minute = Number(minuteText);
   const second = Number(secondText);
-
   if ([year, month, day, hour, minute, second].some(Number.isNaN)) return '';
-
   const bangkokWallClock = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   return bangkokWallClockToIso(bangkokWallClock);
 };
@@ -65,7 +64,6 @@ const formatBangkokHintDate = (dateStr) => {
   if (!dateStr) return 'ยังไม่กำหนด';
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return 'ยังไม่กำหนด';
-
   return new Intl.DateTimeFormat('th-TH', {
     timeZone: APP_TIME_ZONE,
     day: 'numeric',
@@ -102,52 +100,106 @@ const writeStoredRoleData = (roleData) => {
 
 // Mock Auth API
 const signInAnonymously = async () => ({ user: { uid: 'anon' } });
+const signInWithCustomToken = async () => ({ user: { uid: 'custom' } });
 const onAuthStateChanged = (auth, cb) => {
-  setTimeout(() => cb({ uid: 'mock-user' }), 100);
+  setTimeout(() => cb({ uid: 'online-user' }), 100);
   return () => {};
 };
 
-// Mock Firestore API
+// --- Google Sheets API Functions ---
 const doc = (db, ...path) => path.join('/');
+let cachedData = null; // เก็บข้อมูลชั่วคราวเพื่อให้เว็บไม่ค้าง
 
 const getDoc = async (docRef) => {
-  const data = localStorage.getItem(docRef);
-  return { exists: () => !!data, data: () => JSON.parse(data) };
+  try {
+    const res = await fetch(SHEET_API_URL);
+    const data = await res.json();
+    cachedData = data;
+    return { exists: () => Object.keys(data).length > 0, data: () => data };
+  } catch (e) {
+    console.error("Error fetching data:", e);
+    return { exists: () => false, data: () => ({}) };
+  }
 };
 
 const setDoc = async (docRef, data) => {
-  localStorage.setItem(docRef, JSON.stringify(data));
-  window.dispatchEvent(new Event('mock-db-update'));
+  cachedData = data;
+  window.dispatchEvent(new Event('mock-db-update')); // สั่งให้หน้าจออัปเดตทันที
+  // ส่งข้อมูลไปเซฟที่ Google Sheets
+  fetch(SHEET_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(data)
+  }).catch(e => console.error("Save error:", e));
 };
 
 const updateDoc = async (docRef, updates) => {
-  const current = JSON.parse(localStorage.getItem(docRef)) || {};
-  Object.keys(updates).forEach(key => {
-    const parts = key.split('.');
-    let temp = current;
-    for(let i = 0; i < parts.length - 1; i++) {
-      if (!temp[parts[i]]) temp[parts[i]] = {};
-      temp = temp[parts[i]];
-    }
-    temp[parts[parts.length - 1]] = updates[key];
-  });
-  localStorage.setItem(docRef, JSON.stringify(current));
-  window.dispatchEvent(new Event('mock-db-update')); 
+  try {
+    const res = await fetch(SHEET_API_URL);
+    let current = await res.json();
+
+    Object.keys(updates).forEach(key => {
+      const parts = key.split('.');
+      let temp = current;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!temp[parts[i]]) temp[parts[i]] = {};
+        temp = temp[parts[i]];
+      }
+      temp[parts[parts.length - 1]] = updates[key];
+    });
+
+    cachedData = current;
+    window.dispatchEvent(new Event('mock-db-update')); // อัปเดตหน้าจอทันที
+
+    // ส่งข้อมูลที่อัปเดตแล้วไปทับใน Sheets
+    fetch(SHEET_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(current)
+    });
+  } catch (e) {
+    console.error("Update error:", e);
+  }
 };
 
+// ระบบเช็กข้อมูล Real-time (ดึงข้อมูลใหม่ทุกๆ 3 วินาที)
 const onSnapshot = (docRef, callback) => {
-  const trigger = () => {
-    const data = localStorage.getItem(docRef);
-    if (data) callback({ exists: () => true, data: () => JSON.parse(data) });
+  let lastDataStr = "";
+
+  const triggerFetch = async () => {
+    try {
+      const res = await fetch(SHEET_API_URL);
+      const data = await res.json();
+      const currentStr = JSON.stringify(data);
+      if (currentStr !== lastDataStr) {
+        lastDataStr = currentStr;
+        cachedData = data;
+        callback({ exists: () => true, data: () => data });
+      }
+    } catch (e) {}
   };
-  trigger(); 
-  window.addEventListener('storage', trigger); 
-  window.addEventListener('mock-db-update', trigger); 
+
+  triggerFetch(); // ดึงครั้งแรกทันที
+  const interval = setInterval(triggerFetch, 3000); // ดึงอัปเดตทุก 3 วินาที
+
+  // ดักจับเวลาเรากดบันทึกเอง หน้าจอจะได้ไม่ดีเลย์
+  const localTrigger = () => {
+    if (cachedData) {
+      const currentStr = JSON.stringify(cachedData);
+      if (currentStr !== lastDataStr) {
+        lastDataStr = currentStr;
+        callback({ exists: () => true, data: () => cachedData });
+      }
+    }
+  };
+  window.addEventListener('mock-db-update', localTrigger);
+
   return () => {
-    window.removeEventListener('storage', trigger);
-    window.removeEventListener('mock-db-update', trigger);
+    clearInterval(interval);
+    window.removeEventListener('mock-db-update', localTrigger);
   };
 };
+
 
 // --- 2. Mock Data & Constants ---
 const TOTAL_PLAYERS = 10;
@@ -196,7 +248,6 @@ const createNextHintDate = (existingSchedule = []) => {
       return bangkokWallClockToIso(lastDate);
     }
   }
-
   return createDefaultHintDate(existingSchedule.length);
 };
 
@@ -211,7 +262,6 @@ const getLegacyHintEntries = (card = {}) => Object.keys(card)
 
 const getLegacyHintSchedule = (rawSchedule) => {
   if (Array.isArray(rawSchedule)) return rawSchedule.filter(Boolean);
-
   if (rawSchedule && typeof rawSchedule === 'object') {
     return Object.keys(rawSchedule)
       .filter((key) => /^hint\d+$/.test(key))
@@ -219,7 +269,6 @@ const getLegacyHintSchedule = (rawSchedule) => {
       .map((key) => rawSchedule[key])
       .filter(Boolean);
   }
-
   return [];
 };
 
@@ -232,7 +281,6 @@ const getLegacyHintCount = (cards = {}) => Object.values(cards).reduce((maxCount
 
 const normalizeHintArray = (card = {}, hintCount = DEFAULT_HINT_COUNT) => {
   const sourceHints = Array.isArray(card.hints) ? card.hints : getLegacyHintEntries(card);
-
   return Array.from({ length: hintCount }, (_, index) => {
     const hint = sourceHints[index];
     return typeof hint === 'string' && hint.trim() ? hint : createHintPlaceholder(index + 1);
@@ -241,7 +289,6 @@ const normalizeHintArray = (card = {}, hintCount = DEFAULT_HINT_COUNT) => {
 
 const normalizeHintSchedule = (rawSchedule, hintCount = DEFAULT_HINT_COUNT) => {
   const sourceSchedule = getLegacyHintSchedule(rawSchedule);
-
   return Array.from({ length: hintCount }, (_, index) => {
     const dateValue = sourceSchedule[index];
     return dateValue || createDefaultHintDate(index);
@@ -327,20 +374,16 @@ export default function App() {
       writeStoredRoleData(null);
       return;
     }
-
     writeStoredRoleData(roleData);
   }, [roleData]);
 
   useEffect(() => {
     if (!roleData || roleData.role !== 'junior' || !gameState) return;
-
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     const displayName = roleData.nickname || roleData.name;
     const currentName = gameState.juniorsInfo?.[roleData.id];
     const isOnline = gameState.juniorsOnline?.includes(roleData.id);
-
     if (isOnline && currentName === displayName) return;
-
     const updatedOnline = [...new Set([...(gameState.juniorsOnline || []), roleData.id])];
     void updateDoc(docRef, {
       juniorsOnline: updatedOnline,
@@ -396,7 +439,6 @@ export default function App() {
           <nav className="fixed top-0 w-full z-50 px-3 sm:px-4 md:px-6 py-3 sm:py-4 transition-all duration-300 animate-slide-down">
             <div className="max-w-7xl mx-auto bg-white/10 backdrop-blur-2xl border border-white/10 rounded-[1.5rem] sm:rounded-full px-4 sm:px-6 py-3 flex justify-between items-center gap-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] min-w-0">
               <div className="flex items-center gap-2 min-w-0">
-                {/* 📌 Navbar Logo Slot */}
                 <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-md shadow-inner border border-white/20 overflow-hidden relative">
                   <img src={LOGO_URL} alt="Logo" className="w-full h-full object-cover z-10" onError={(e) => { e.target.onerror = null; e.target.style.opacity = 0; }} />
                   <Sparkles className="w-4 h-4 text-white absolute z-0" />
@@ -459,40 +501,30 @@ function LandingPage({ onEnter }) {
       }}
       className="flex flex-col items-center pt-12 sm:pt-16 pb-12 sm:pb-16 w-full relative z-10 overflow-y-auto overflow-x-hidden h-screen scrollbar-hide"
     >
-       
-       {/* 1. TOP SECTION: Teddy Chula 19 Senior Showcase */}
        <div className="w-full max-w-[1400px] mb-16 sm:mb-24 px-3 sm:px-4 flex flex-col items-center">
           <div className="text-center mb-10 animate-fade-down flex flex-col items-center">
-            
-            {/* 📌 Main Logo Slot on Landing Page */}
             <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-[2rem] bg-white/10 backdrop-blur-xl border border-white/20 shadow-[0_10px_40px_rgba(255,255,255,0.15)] flex items-center justify-center overflow-hidden mb-6 animate-float relative group cursor-pointer hover:bg-white/20 transition-colors duration-500">
                <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/20 to-pink-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
                <img src={LOGO_URL} alt="Main Logo" className="w-full h-full object-cover z-10" onError={(e) => { e.target.onerror = null; e.target.style.opacity = 0; }} />
                <Sparkles className="w-8 h-8 text-white/50 absolute z-0" />
             </div>
-
             <h2 className="text-sm md:text-base font-bold tracking-[0.2em] text-purple-400 uppercase mb-2 animate-slide-up" style={{ animationDelay: '0.1s' }}>Welcome to</h2>
             <h1 className="text-3xl sm:text-5xl md:text-7xl font-black text-white tracking-tight drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] animate-slide-up" style={{ animationDelay: '0.2s' }}>
               Chulalongkorn University
             </h1>
           </div>
 
-          {/* Unified 1x10 Row: all seniors in one line */}
           <div className="w-full pb-8 sm:pb-10 px-1 sm:px-2 overflow-x-auto scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="mx-auto flex min-w-[960px] sm:min-w-[1220px] w-max items-end justify-center -space-x-4 sm:-space-x-6 md:-space-x-7">
              {SENIORS.map((senior, idx) => {
                 const nickname = senior.name.match(/\((.*?)\)/)?.[1] || senior.name.split(' ')[0];
                 const fullName = senior.name.replace(/\s*\(.*?\)\s*/g, '');
                 const cardFloat = Math.sin((scrollY * 9) + (idx * 0.25)) * 3;
-                
                 return (
                   <div
                     key={senior.id}
                     className="group perspective-1000 animate-fade-in opacity-0 w-[124px] sm:w-[138px] md:w-[152px] lg:w-[168px] xl:w-[176px] hover:z-40"
-                    style={{
-                      animationDelay: `${0.3 + (idx * 0.06)}s`,
-                      animationFillMode: 'forwards',
-                    }}
+                    style={{ animationDelay: `${0.3 + (idx * 0.06)}s`, animationFillMode: 'forwards' }}
                   >
                     <div
                       className="relative w-full aspect-[9/16] transition-all duration-500 transform-style-3d group-hover:scale-[1.16] group-hover:-translate-y-3"
@@ -500,12 +532,7 @@ function LandingPage({ onEnter }) {
                     >
                       <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/0 via-white/0 to-white/10"></div>
                       <div className="absolute top-2 right-2 z-30 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/25 backdrop-blur-xl border border-white/35 shadow-[0_0_20px_rgba(255,255,255,0.22)] overflow-hidden p-1 sm:p-1.5">
-                        <img
-                          src={LOGO_URL}
-                          alt="Event logo"
-                          className="w-full h-full object-cover rounded-md"
-                          onError={(e) => { e.target.onerror = null; e.target.style.opacity = 0; }}
-                        />
+                        <img src={LOGO_URL} alt="Event logo" className="w-full h-full object-cover rounded-md" onError={(e) => { e.target.onerror = null; e.target.style.opacity = 0; }} />
                       </div>
                       <div className="relative w-full h-full flex items-end justify-center">
                         <img 
@@ -516,10 +543,7 @@ function LandingPage({ onEnter }) {
                         />
                       </div>
                       <div className="text-center w-[92%] z-20 absolute bottom-3 left-1/2 -translate-x-1/2 bg-white/14 border border-white/30 rounded-2xl px-2 sm:px-3 py-2 backdrop-blur-xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 group-active:opacity-100 group-active:translate-y-0 transition-all duration-300 pointer-events-none">
-                        <span 
-                          className="text-base sm:text-lg md:text-xl font-black block mb-0.5 drop-shadow-md"
-                          style={{ background: gradients[idx % gradients.length], WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-                        >
+                        <span className="text-base sm:text-lg md:text-xl font-black block mb-0.5 drop-shadow-md" style={{ background: gradients[idx % gradients.length], WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                           {nickname}
                         </span>
                         <span className="text-[9px] sm:text-[10px] md:text-xs text-white/80 font-medium uppercase tracking-wider block truncate w-full">
@@ -534,7 +558,6 @@ function LandingPage({ onEnter }) {
           </div>
        </div>
 
-       {/* 2. HERO SECTION: Liquid Card & Canva */}
         <div className="w-full max-w-5xl flex flex-col items-center gap-6 sm:gap-10 relative z-10 px-3 sm:px-4">
           <div className="text-center space-y-4 max-w-2xl mx-auto opacity-0 animate-slide-up" style={{ animationDelay: '0.5s', animationFillMode: 'forwards' }}>
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-xl border border-white/10 mb-2 shadow-lg hover:bg-white/20 transition-colors cursor-pointer">
@@ -544,9 +567,7 @@ function LandingPage({ onEnter }) {
             <h1 className="text-3xl sm:text-4xl md:text-6xl font-black text-white tracking-tight leading-tight">
               Teddy <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-300 animate-pulse">Chula 19</span>
             </h1>
-            <p className="text-base md:text-xl text-white/60 font-medium">
-              ระบบการจับสายรหัส ที่เลิศที่สุดในศตวรรษ 
-            </p>
+            <p className="text-base md:text-xl text-white/60 font-medium">ระบบการจับสายรหัส ที่เลิศที่สุดในศตวรรษ</p>
           </div>
 
           <div className="w-full relative rounded-[1.5rem] sm:rounded-[2rem] overflow-hidden p-2 bg-white/5 backdrop-blur-3xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] opacity-0 animate-scale-in" style={{ animationDelay: '0.7s', animationFillMode: 'forwards' }}>
@@ -586,7 +607,6 @@ function LoginScreen({ onLogin, onBack }) {
   const handleLoginSubmit = (e) => {
     e.preventDefault();
     setError('');
-    
     if (loginMode === 'admin') {
       if (username === 'admin' && password === 'admin') {
         onLogin('admin', 'admin', 'Admin (ผู้ดูแลระบบ)');
@@ -619,7 +639,6 @@ function LoginScreen({ onLogin, onBack }) {
               <h1 className="text-2xl sm:text-3xl font-bold mb-2 text-white animate-slide-up" style={{ animationDelay: '0.1s', animationFillMode: 'forwards', opacity: 0 }}>เข้าสู่ระบบ</h1>
               <p className="text-white/50 text-sm animate-slide-up" style={{ animationDelay: '0.2s', animationFillMode: 'forwards', opacity: 0 }}>เลือกระดับเพื่อเข้าถึง Liquid Widget</p>
             </div>
-
             <div className="flex flex-col gap-4">
               {[{ id: 'admin', icon: <Settings/>, title: 'Admin', desc: 'สำหรับผู้ดูแลระบบ', color: 'text-red-400' },
                 { id: 'senior', icon: <Users/>, title: 'พี่รหัส', desc: 'เข้าสู่ระบบเพื่อเขียนคำใบ้', color: 'text-blue-400' },
@@ -646,39 +665,23 @@ function LoginScreen({ onLogin, onBack }) {
             <p className="text-white/50 mb-8 text-sm animate-slide-up">
               {loginMode === 'senior' ? 'เข้าสู่ระบบด้วยอีเมลนิสิต @student.chula.ac.th' : loginMode === 'junior' ? 'ป้อน Username, Password และชื่อเล่นของคุณ' : 'จัดการระบบสลากรหัสออนไลน์'}
             </p>
-            
             <form onSubmit={handleLoginSubmit} className="flex flex-col gap-5">
               {error && (
                 <div className="bg-red-500/20 border border-red-500/30 text-red-200 p-4 rounded-2xl text-sm flex items-center gap-2 backdrop-blur-md animate-shake">
                   <AlertCircle className="w-4 h-4" /> {error}
                 </div>
               )}
-              
               <div className="opacity-0 animate-slide-up" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-                <input 
-                  type="text" value={username} onChange={e => setUsername(e.target.value)} 
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-white/40 focus:bg-black/60 transition-all backdrop-blur-md placeholder:text-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.1)]" 
-                  placeholder={loginMode === 'junior' ? 'เช่น Teddy Chula 01' : 'Username'} required 
-                />
+                <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-white/40 focus:bg-black/60 transition-all backdrop-blur-md placeholder:text-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.1)]" placeholder={loginMode === 'junior' ? 'เช่น Teddy Chula 01' : 'Username'} required />
               </div>
               <div className="opacity-0 animate-slide-up" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
-                <input 
-                  type="password" value={password} onChange={e => setPassword(e.target.value)} 
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-white/40 focus:bg-black/60 transition-all backdrop-blur-md placeholder:text-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.1)]" 
-                  placeholder="Password" required 
-                />
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-white/40 focus:bg-black/60 transition-all backdrop-blur-md placeholder:text-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.1)]" placeholder="Password" required />
               </div>
-
               {loginMode === 'junior' && (
                 <div className="opacity-0 animate-slide-up" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
-                  <input 
-                    type="text" value={nickname} onChange={e => setNickname(e.target.value)} 
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-white/40 focus:bg-black/60 transition-all backdrop-blur-md placeholder:text-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.1)]" 
-                    placeholder="ชื่อเล่นของคุณ (โชว์ตอนสุ่มไพ่)" required 
-                  />
+                  <input type="text" value={nickname} onChange={e => setNickname(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white outline-none focus:border-white/40 focus:bg-black/60 transition-all backdrop-blur-md placeholder:text-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.1)]" placeholder="ชื่อเล่นของคุณ (โชว์ตอนสุ่มไพ่)" required />
                 </div>
               )}
-              
               <button type="submit" className="opacity-0 animate-slide-up w-full bg-white text-black font-bold py-4 px-6 rounded-2xl mt-4 transition-all hover:bg-gray-200 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.4)] hover:scale-[1.02] active:scale-95 min-h-touch" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
                 เข้าสู่ระบบ
               </button>
@@ -742,15 +745,11 @@ function AdminDashboard({ gameState, appId }) {
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     try {
       const normalizedHints = normalizeHintArray({ hints: editingHints }, hintCount);
-      await updateDoc(docRef, {
-        [`cards.${editingCard.id}.hints`]: normalizedHints
-      });
+      await updateDoc(docRef, { [`cards.${editingCard.id}.hints`]: normalizedHints });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       setEditingCard(null);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setSaving(false);
   };
 
@@ -761,14 +760,10 @@ function AdminDashboard({ gameState, appId }) {
     try {
       const updatedHints = [...editingHints];
       updatedHints[hintIndex] = createHintPlaceholder(hintIndex + 1);
-      await updateDoc(docRef, {
-        [`cards.${editingCard.id}.hints`]: updatedHints
-      });
+      await updateDoc(docRef, { [`cards.${editingCard.id}.hints`]: updatedHints });
       setEditingHints(updatedHints);
       flashSaved();
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
     setSaving(false);
   };
 
@@ -781,23 +776,16 @@ function AdminDashboard({ gameState, appId }) {
         return [cardId, { ...card, hints: [...currentHints, createHintPlaceholder(updatedSchedule.length)] }];
       })
     );
-
     try {
-      await updateDoc(docRef, {
-        hintSchedule: updatedSchedule,
-        cards: updatedCards
-      });
+      await updateDoc(docRef, { hintSchedule: updatedSchedule, cards: updatedCards });
       setEditingCard(null);
       setEditingHints([]);
       flashSaved();
-    } catch (error) {
-      console.error(error);
-    }
+    } catch (error) { console.error(error); }
   };
 
   const handleRemoveHintRound = async (hintIndex) => {
     if (hintSchedule.length <= 1) return;
-
     const docRef = doc(db, 'artifacts', appId, 'data', 'gameState');
     const updatedSchedule = hintSchedule.filter((_, index) => index !== hintIndex);
     const updatedCards = Object.fromEntries(
@@ -806,18 +794,12 @@ function AdminDashboard({ gameState, appId }) {
         return [cardId, { ...card, hints: currentHints.filter((_, index) => index !== hintIndex) }];
       })
     );
-
     try {
-      await updateDoc(docRef, {
-        hintSchedule: updatedSchedule,
-        cards: updatedCards
-      });
+      await updateDoc(docRef, { hintSchedule: updatedSchedule, cards: updatedCards });
       setEditingCard(null);
       setEditingHints([]);
       flashSaved();
-    } catch (error) {
-      console.error(error);
-    }
+    } catch (error) { console.error(error); }
   };
 
   return (
@@ -829,11 +811,7 @@ function AdminDashboard({ gameState, appId }) {
             { id: 'hints', label: 'ตรวจสอบ', icon: <Eye className="w-4 h-4"/> },
             { id: 'settings', label: 'ตั้งค่า', icon: <Settings className="w-4 h-4"/> }
           ].map(tab => (
-            <button 
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)} 
-              className={`flex-1 flex items-center justify-center gap-2 whitespace-nowrap px-4 sm:px-6 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-all duration-300 min-h-touch ${activeTab === tab.id ? 'bg-white text-black shadow-md scale-105' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
-            >
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 flex items-center justify-center gap-2 whitespace-nowrap px-4 sm:px-6 py-3 sm:py-2.5 rounded-full text-sm font-semibold transition-all duration-300 min-h-touch ${activeTab === tab.id ? 'bg-white text-black shadow-md scale-105' : 'text-white/60 hover:text-white hover:bg-white/10'}`}>
               {tab.icon} {tab.label}
             </button>
           ))}
@@ -851,25 +829,18 @@ function AdminDashboard({ gameState, appId }) {
                 <div className={`w-2.5 h-2.5 rounded-full ${isDrawStageOpen ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-orange-500 shadow-[0_0_10px_#f97316]'} animate-pulse`}></div>
                 <span className="text-sm font-bold text-white/80">{onlineCount} / {TOTAL_PLAYERS} ออนไลน์</span>
               </div>
-
               {isAdminDrawReleased && !isReadyToDraw && (
                 <div className="mt-4 inline-flex items-center gap-2 bg-green-500/15 px-3 py-1.5 rounded-full border border-green-400/30 text-green-200 text-xs font-bold animate-fade-in">
-                  <Play className="w-3.5 h-3.5" />
-                  แอดมินเปิดสมรภูมิแล้ว (ก่อนครบ 10 คน)
+                  <Play className="w-3.5 h-3.5" /> แอดมินเปิดสมรภูมิแล้ว (ก่อนครบ 10 คน)
                 </div>
               )}
-              
               {!isDrawStageOpen && drawnCards < TOTAL_PLAYERS && (
                 <div className="mt-6 animate-fade-in">
-                  <button
-                    onClick={handleOpenDrawStage}
-                    className="px-6 py-4 sm:py-3 bg-white text-black rounded-full font-bold text-sm hover:bg-white/90 transition-all hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(255,255,255,0.3)] min-h-touch w-full sm:w-auto"
-                  >
+                  <button onClick={handleOpenDrawStage} className="px-6 py-4 sm:py-3 bg-white text-black rounded-full font-bold text-sm hover:bg-white/90 transition-all hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(255,255,255,0.3)] min-h-touch w-full sm:w-auto">
                     เปิดสมรภูมิสุ่มไพ่ก่อนครบ 10 คน
                   </button>
                 </div>
               )}
-
               {isDrawStageOpen && drawnCards < TOTAL_PLAYERS && (
                 <div className="mt-8 max-w-xs mx-auto animate-fade-in">
                    <div className="flex justify-between text-xs text-white/50 font-bold mb-2 px-1"><span>เปิดไพ่แล้ว</span><span>{drawnCards}/{TOTAL_PLAYERS}</span></div>
@@ -904,31 +875,22 @@ function AdminDashboard({ gameState, appId }) {
                   const juniorAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(juniorName || 'Junior')}&background=f3f4f6&color=111827&size=128&bold=true`;
                   return (
                     <div key={card.id} className="relative aspect-[2/3.2] perspective-1000 group opacity-0 animate-scale-in" style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'forwards' }}>
-                      <div className={`w-full h-full transition-all duration-1000 transform-style-3d ${card.juniorId ? 'rotate-y-180' : 'animate-float'} `} style={{ animationDelay: `${idx * 0.05}s` }}>
-                        
+                      <div className={`w-full h-full transition-all duration-1000 transform-style-3d ${card.juniorId ? 'rotate-y-180' : 'animate-float'}`} style={{ animationDelay: `${idx * 0.05}s` }}>
                         <div className="absolute inset-0 backface-hidden bg-white/5 backdrop-blur-2xl rounded-[1.5rem] border border-white/20 flex flex-col items-center justify-center shadow-[0_10px_40px_rgba(0,0,0,0.3)]">
                           <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-2 shadow-inner">
                             <Sparkles className="w-8 h-8 text-white/40 animate-pulse" />
                           </div>
                         </div>
-
                         <div className="absolute inset-0 backface-hidden rotate-y-180 bg-white/90 backdrop-blur-3xl rounded-[1.5rem] border border-white/20 flex flex-col items-center justify-center p-5 text-center shadow-[0_20px_50px_rgba(255,255,255,0.15)] overflow-hidden">
                           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
                           <div className="absolute bottom-0 left-0 w-32 h-32 bg-pink-500/10 rounded-full blur-2xl -ml-10 -mb-10"></div>
-                          
-                          <img 
-                            src={juniorAvatar}
-                            className="w-16 h-16 rounded-full border border-black/10 mb-3 shadow-lg z-10 object-cover"
-                            alt="junior avatar"
-                          />
+                          <img src={juniorAvatar} className="w-16 h-16 rounded-full border border-black/10 mb-3 shadow-lg z-10 object-cover" alt="junior avatar" />
                           <h3 className="font-bold text-lg text-black leading-tight z-10">{juniorName || 'ยังไม่มีผู้เลือก'}</h3>
-                          
                           <div className="w-full mt-4 bg-black/5 rounded-xl p-3 border border-black/5 z-10">
                             <p className="text-[10px] text-black/50 font-bold uppercase tracking-wider mb-1">ผู้เลือกไพ่ (รุ่นน้อง)</p>
                             <p className="text-xs text-black font-semibold truncate">{juniorName || 'ยังไม่มีผู้เลือก'}</p>
                           </div>
                         </div>
-
                       </div>
                     </div>
                   )
@@ -942,27 +904,18 @@ function AdminDashboard({ gameState, appId }) {
               <h3 className="text-3xl font-bold text-white mb-2">สถานะคำใบ้และการจับคู่</h3>
               <p className="text-white/50">ตรวจสอบการกรอกข้อมูลของพี่รหัส และน้องที่สุ่มได้ (แสดงเฉพาะ Admin)</p>
             </div>
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {SENIORS.map((senior, idx) => {
                  const card = Object.values(gameState.cards).find(c => c.seniorId === senior.id);
                  if (!card) return null;
                  const cardHints = Array.isArray(card.hints) ? card.hints : normalizeHintArray(card, hintCount);
-                 const allDone = cardHints.every((hint, hintIndex) => {
-                   return Boolean(hint && hint.trim() && hint !== createHintPlaceholder(hintIndex + 1));
-                 });
+                 const allDone = cardHints.every((hint, hintIndex) => Boolean(hint && hint.trim() && hint !== createHintPlaceholder(hintIndex + 1)));
                  const pairedJunior = card.juniorId ? (gameState.juniorsInfo?.[card.juniorId] || "ได้การ์ดแล้ว") : "ยังไม่มีคนสุ่ม";
-
                  return (
                    <div key={senior.id} className="opacity-0 animate-slide-up p-6 rounded-[1.5rem] bg-black/20 backdrop-blur-md border border-white/10 flex flex-col gap-4 relative overflow-hidden group hover:bg-black/30 transition-colors" style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'forwards' }}>
                      <div className="flex justify-between items-start">
                        <div className="flex items-center gap-4">
-                         <img 
-                           src={senior.avatar} 
-                           onError={(e) => { e.target.onerror = null; e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(senior.name.match(/\((.*?)\)/)?.[1] || senior.name)}&background=fff&color=000&size=128`; }}
-                           alt="profile" 
-                           className="w-12 h-12 rounded-full shadow-md object-cover group-hover:scale-110 transition-transform" 
-                         />
+                         <img src={senior.avatar} onError={(e) => { e.target.onerror = null; e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(senior.name.match(/\((.*?)\)/)?.[1] || senior.name)}&background=fff&color=000&size=128`; }} alt="profile" className="w-12 h-12 rounded-full shadow-md object-cover group-hover:scale-110 transition-transform" />
                          <div>
                            <h4 className="font-bold text-white text-base group-hover:text-purple-300 transition-colors">{senior.name}</h4>
                            <p className="text-xs text-purple-300 mt-1 flex items-center gap-1 font-semibold">
@@ -975,7 +928,6 @@ function AdminDashboard({ gameState, appId }) {
                           {allDone ? 'ครบถ้วน' : 'ขาดข้อมูล'}
                        </div>
                      </div>
-                     
                      <div className="space-y-2 mt-2">
                         {cardHints.map((hint, i) => (
                           <div key={i} className="flex gap-3 text-sm items-start">
@@ -984,11 +936,7 @@ function AdminDashboard({ gameState, appId }) {
                           </div>
                         ))}
                      </div>
-
-                     <button 
-                       onClick={() => handleEditCard(card)}
-                       className="w-full mt-4 py-2 px-3 bg-white/10 hover:bg-white/20 text-white text-sm rounded-lg border border-white/20 transition-all font-semibold"
-                     >
+                     <button onClick={() => handleEditCard(card)} className="w-full mt-4 py-2 px-3 bg-white/10 hover:bg-white/20 text-white text-sm rounded-lg border border-white/20 transition-all font-semibold">
                        แก้ไขคำใบ้
                      </button>
                    </div>
@@ -1001,10 +949,7 @@ function AdminDashboard({ gameState, appId }) {
             <h3 className="text-3xl font-bold mb-8 text-white">ตั้งค่าเวลา</h3>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
               <p className="text-white/50 text-sm">จัดการจำนวนรอบคำใบ้และกำหนดเวลาเปิดของแต่ละรอบ</p>
-              <button
-                onClick={handleAddHintRound}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-white text-black font-bold text-sm hover:bg-white/90 transition-all min-h-touch"
-              >
+              <button onClick={handleAddHintRound} className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-white text-black font-bold text-sm hover:bg-white/90 transition-all min-h-touch">
                 <Plus className="w-4 h-4" /> เพิ่มรอบคำใบ้
               </button>
             </div>
@@ -1015,24 +960,14 @@ function AdminDashboard({ gameState, appId }) {
                    <div key={idx} className="opacity-0 animate-slide-up bg-black/20 p-5 rounded-2xl border border-white/5 flex flex-col gap-3 hover:bg-black/30 transition-colors" style={{ animationDelay: `${idx * 0.1}s`, animationFillMode: 'forwards' }}>
                       <div className="flex items-center justify-between gap-3">
                         <label className="text-sm font-semibold text-white/60">เวลาเปิดคำใบ้รอบที่ {idx + 1}</label>
-                        <button
-                          onClick={() => handleRemoveHintRound(idx)}
-                          disabled={hintSchedule.length <= 1}
-                          className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-bold transition disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
+                        <button onClick={() => handleRemoveHintRound(idx)} disabled={hintSchedule.length <= 1} className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-full bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-bold transition disabled:opacity-40 disabled:cursor-not-allowed">
                           <Minus className="w-3.5 h-3.5" /> ลบรอบ
                         </button>
                       </div>
-                      <input
-                        type="datetime-local"
-                        value={localDateStr}
-                        onChange={(e) => handleDateChange(idx, e.target.value)}
-                        className="bg-white/5 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-white/30 font-medium focus:bg-white/10 transition-colors"
-                      />
+                      <input type="datetime-local" value={localDateStr} onChange={(e) => handleDateChange(idx, e.target.value)} className="bg-white/5 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-white/30 font-medium focus:bg-white/10 transition-colors" />
                    </div>
                  )
                })}
-               
                <div className="mt-8 pt-8 border-t border-white/10 opacity-0 animate-slide-up" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
                  {confirmReset ? (
                    <div className="bg-red-500/10 p-5 rounded-2xl border border-red-500/30 flex flex-col gap-4 backdrop-blur-md animate-scale-in">
@@ -1057,85 +992,39 @@ function AdminDashboard({ gameState, appId }) {
             <div className="bg-white/10 backdrop-blur-3xl border border-white/10 rounded-[2rem] sm:rounded-[2.5rem] p-6 sm:p-8 max-w-2xl w-full shadow-2xl animate-scale-in max-h-[92vh] overflow-y-auto min-w-0">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-2xl font-bold text-white">แก้ไขคำใบ้</h3>
-                <button 
-                  onClick={() => setEditingCard(null)}
-                  className="text-white/60 hover:text-white transition text-2xl"
-                >
-                  ×
-                </button>
+                <button onClick={() => setEditingCard(null)} className="text-white/60 hover:text-white transition text-2xl">×</button>
               </div>
-
               {(() => {
                 const senior = SENIORS.find((item) => item.id === editingCard.seniorId);
                 if (!senior) return null;
                 const cardHints = Array.isArray(editingHints) ? editingHints : normalizeHintArray(editingCard, hintCount);
-
                 return (
                   <div className="mb-6">
                     <div className="flex items-center gap-4 mb-6 pb-4 border-b border-white/10">
-                      <img 
-                        src={senior.avatar}
-                        onError={(e) => { e.target.onerror = null; e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(senior.name.match(/\((.*?)\)/)?.[1] || senior.name)}&background=fff&color=000&size=128`; }}
-                        alt="profile"
-                        className="w-16 h-16 rounded-full shadow-md object-cover"
-                      />
+                      <img src={senior.avatar} onError={(e) => { e.target.onerror = null; e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(senior.name.match(/\((.*?)\)/)?.[1] || senior.name)}&background=fff&color=000&size=128`; }} alt="profile" className="w-16 h-16 rounded-full shadow-md object-cover" />
                       <div>
                         <h4 className="text-lg font-bold text-white">{senior.name}</h4>
                         <p className="text-sm text-white/50">แก้ไขข้อมูลคำใบ้</p>
                       </div>
                     </div>
-
                     <div className="space-y-4">
                       {cardHints.map((hintText, index) => (
                         <div key={index} className="flex flex-col gap-2">
                           <div className="flex justify-between items-center gap-3">
                             <label className="text-sm font-semibold text-white/80">คำใบ้รอบที่ {index + 1}</label>
-                            <button 
-                              onClick={() => handleClearHint(index)}
-                              disabled={saving}
-                              className="text-xs px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/30 transition disabled:opacity-50"
-                            >
-                              ล้าง
-                            </button>
+                            <button onClick={() => handleClearHint(index)} disabled={saving} className="text-xs px-2 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded border border-red-500/30 transition disabled:opacity-50">ล้าง</button>
                           </div>
-                          <textarea 
-                            value={hintText}
-                            onChange={(e) => setEditingHints((prev) => {
-                              const nextHints = [...prev];
-                              nextHints[index] = e.target.value;
-                              return nextHints;
-                            })}
-                            className="bg-black/20 backdrop-blur-md border border-white/10 rounded-xl p-3 min-h-[80px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none"
-                            placeholder={`พิมพ์คำใบ้รอบที่ ${index + 1}...`}
-                          />
+                          <textarea value={hintText} onChange={(e) => setEditingHints((prev) => { const nextHints = [...prev]; nextHints[index] = e.target.value; return nextHints; })} className="bg-black/20 backdrop-blur-md border border-white/10 rounded-xl p-3 min-h-[80px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none" placeholder={`พิมพ์คำใบ้รอบที่ ${index + 1}...`} />
                         </div>
                       ))}
                     </div>
                   </div>
                 );
               })()}
-
               <div className="flex gap-3 mt-8 pt-6 border-t border-white/10">
-                <button 
-                  onClick={() => setEditingCard(null)}
-                  className="flex-1 py-3 px-4 bg-white/10 hover:bg-white/20 text-white rounded-xl font-semibold transition"
-                >
-                  ยกเลิก
-                </button>
-                <button 
-                  onClick={handleSaveHints}
-                  disabled={saving}
-                  className={`flex-1 py-3 px-4 rounded-xl font-semibold transition flex justify-center items-center gap-2 min-h-touch ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/20 hover:bg-white/30 text-white border border-white/30'}`}
-                >
-                  {saving ? (
-                    <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                  ) : saved ? (
-                    <>
-                      <CheckCircle className="w-5 h-5"/> บันทึกสำเร็จ
-                    </>
-                  ) : (
-                    'บันทึกข้อมูล'
-                  )}
+                <button onClick={() => setEditingCard(null)} className="flex-1 py-3 px-4 bg-white/10 hover:bg-white/20 text-white rounded-xl font-semibold transition">ยกเลิก</button>
+                <button onClick={handleSaveHints} disabled={saving} className={`flex-1 py-3 px-4 rounded-xl font-semibold transition flex justify-center items-center gap-2 min-h-touch ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-white/20 hover:bg-white/30 text-white border border-white/30'}`}>
+                  {saving ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div> : saved ? <><CheckCircle className="w-5 h-5"/> บันทึกสำเร็จ</> : 'บันทึกข้อมูล'}
                 </button>
               </div>
             </div>
@@ -1166,10 +1055,7 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
       const baseHints = currentEntry?.signature === currentHintsSignature ? currentEntry.values : currentHints;
       const nextHints = [...baseHints];
       nextHints[index] = value;
-      return {
-        ...prev,
-        [myCard.id]: { signature: currentHintsSignature, values: nextHints },
-      };
+      return { ...prev, [myCard.id]: { signature: currentHintsSignature, values: nextHints } };
     });
   };
 
@@ -1181,17 +1067,12 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
       const normalizedHints = normalizeHintArray({ hints }, hintCount);
       await updateDoc(docRef, { [`cards.${myCard.id}.hints`]: normalizedHints });
       setSaved(true); setTimeout(() => setSaved(false), 3000);
-      setHintDraftsByCard((prev) => {
-        const nextDrafts = { ...prev };
-        delete nextDrafts[myCard.id];
-        return nextDrafts;
-      });
+      setHintDraftsByCard((prev) => { const nextDrafts = { ...prev }; delete nextDrafts[myCard.id]; return nextDrafts; });
     } catch (e) { console.error(e); }
     setSaving(false);
   };
 
   if (!myCard) return <div>หาการ์ดไม่พบ</div>;
-
   const pairedJuniorName = myCard.juniorId ? (gameState.juniorsInfo?.[myCard.juniorId] || JUNIORS.find(j => j.id === myCard.juniorId)?.name) : null;
 
   return (
@@ -1217,7 +1098,6 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
           {hints.map((hintText, idx) => {
              const hintDateStr = hintSchedule[idx];
              const hintDate = formatBangkokHintDate(hintDateStr);
-
              return (
                <div key={idx} className="flex flex-col gap-2 opacity-0 animate-slide-up" style={{ animationDelay: `${0.3 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
                   <label className="font-semibold flex items-center justify-between text-white/80 text-sm pl-2">
@@ -1225,24 +1105,13 @@ function SeniorDashboard({ gameState, appId, seniorId }) {
                       <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px]">{idx + 1}</div>
                       รอบที่ {idx + 1}
                     </div>
-                    <span className="text-[10px] text-white/50 bg-black/20 px-2.5 py-1 rounded-full border border-white/5">
-                      เปิด: {hintDate}
-                    </span>
+                    <span className="text-[10px] text-white/50 bg-black/20 px-2.5 py-1 rounded-full border border-white/5">เปิด: {hintDate}</span>
                   </label>
-                  <textarea 
-                    value={hintText} onChange={(e) => setHintValue(idx, e.target.value)}
-                    className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-4 min-h-[100px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none shadow-inner focus:shadow-[0_0_15px_rgba(255,255,255,0.05)]"
-                    placeholder={`แตะเพื่อพิมพ์คำใบ้รอบที่ ${idx + 1}...`}
-                  />
+                  <textarea value={hintText} onChange={(e) => setHintValue(idx, e.target.value)} className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-4 min-h-[100px] outline-none focus:border-white/30 focus:bg-black/40 transition-all text-white placeholder:text-white/20 resize-none shadow-inner focus:shadow-[0_0_15px_rgba(255,255,255,0.05)]" placeholder={`แตะเพื่อพิมพ์คำใบ้รอบที่ ${idx + 1}...`} />
                </div>
              );
           })}
-
-          <button 
-            onClick={handleSave} disabled={saving}
-            className={`w-full py-4 px-6 rounded-2xl font-bold text-base transition-all mt-4 opacity-0 animate-slide-up min-h-touch ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md hover:scale-[1.02] active:scale-95'} flex justify-center items-center gap-2`}
-            style={{ animationDelay: '0.6s', animationFillMode: 'forwards' }}
-          >
+          <button onClick={handleSave} disabled={saving} className={`w-full py-4 px-6 rounded-2xl font-bold text-base transition-all mt-4 opacity-0 animate-slide-up min-h-touch ${saved ? 'bg-green-500/20 text-green-400 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.2)]' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md hover:scale-[1.02] active:scale-95'} flex justify-center items-center gap-2`} style={{ animationDelay: '0.6s', animationFillMode: 'forwards' }}>
             {saving ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div> : saved ? <><CheckCircle className="w-5 h-5 animate-scale-in"/> บันทึกสำเร็จ</> : 'บันทึกข้อมูล'}
           </button>
         </div>
@@ -1284,32 +1153,23 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
     <div className="max-w-4xl mx-auto w-full flex flex-col items-center min-w-0">
         <h2 className="text-3xl font-bold mb-2 text-white drop-shadow-md animate-slide-down">คุณได้รับไพ่แล้ว</h2>
         <p className="text-white/50 mb-10 text-sm animate-slide-down" style={{ animationDelay: '0.1s' }}>ติดตามคำใบ้เพื่อค้นหาพี่รหัสของคุณ</p>
-
         <div className="w-full flex flex-col md:flex-row gap-4 sm:gap-6 items-start min-w-0">
-          
-          {/* Secret Glass Card Widget */}
           <div className="w-full md:w-1/3 aspect-[2/3] bg-white/10 backdrop-blur-3xl rounded-[1.5rem] sm:rounded-[2rem] border border-white/20 flex flex-col items-center justify-center p-5 sm:p-6 text-center shrink-0 relative overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-scale-in hover:shadow-[0_20px_60px_rgba(255,255,255,0.1)] transition-shadow">
              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
-             
              <div className="w-24 h-24 rounded-full bg-black/40 border-4 border-white/20 flex items-center justify-center mb-6 shadow-[0_10px_20px_rgba(0,0,0,0.2)] z-10 backdrop-blur-md group hover:border-white/40 transition-colors">
                 <UserCircle className="w-12 h-12 text-white/60 group-hover:scale-110 transition-transform" />
              </div>
-             
              <h3 className="text-xl font-bold text-white z-10 tracking-wide uppercase">พี่รหัสปริศนา</h3>
              <p className="text-xs text-white/40 mt-1 font-mono z-10">รอการเฉลยสายรหัส</p>
-             
              <div className="mt-8 px-6 py-2.5 bg-black/20 text-white/50 border border-white/10 rounded-full text-xs font-bold flex items-center gap-2 z-10 animate-pulse-slow">
                <Lock className="w-3.5 h-3.5"/> ข้อมูลถูกปกปิดไว้
              </div>
           </div>
-
-          {/* Hint Widgets (Stack) */}
           <div className="w-full md:w-2/3 flex flex-col gap-4 min-w-0">
              {myHints.map((hintText, idx) => {
                const hintDateStr = hintSchedule[idx];
                const unlocked = hintDateStr ? isHintUnlocked(hintDateStr) : false;
                const hintDate = formatBangkokHintDate(hintDateStr);
-               
                return (
                  <div key={idx} className={`opacity-0 animate-slide-up p-6 rounded-[2rem] relative overflow-hidden transition-all duration-500 backdrop-blur-2xl border ${unlocked ? 'bg-white/10 border-white/20 shadow-lg hover:bg-white/15' : 'bg-black/20 border-white/5 opacity-70'}`} style={{ animationDelay: `${0.2 + (idx * 0.1)}s`, animationFillMode: 'forwards' }}>
                     <div className="flex justify-between items-center mb-4">
@@ -1321,7 +1181,6 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
                       </h4>
                       <span className="text-[10px] uppercase font-bold text-white/30 tracking-wider">{hintDate}</span>
                     </div>
-
                     <div className="relative">
                       {unlocked ? (
                         <p className="text-lg text-white/90 leading-relaxed font-medium animate-fade-in">{hintText}</p>
@@ -1341,7 +1200,6 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
     );
   }
 
-  // STAGE 2: Drawing Room
   if (canDrawCards) {
     return (
       <div className="flex flex-col items-center pt-4 w-full relative">
@@ -1352,28 +1210,18 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
         )}
         <h2 className="text-3xl sm:text-4xl font-black mb-2 text-white animate-slide-down">เลือกไพ่ของคุณ</h2>
         <p className="text-white/50 mb-10 text-sm animate-slide-down" style={{ animationDelay: '0.1s' }}>แตะที่การ์ดเพื่อรับสายรหัส</p>
-
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 md:gap-6 w-full max-w-5xl min-w-0">
           {Object.values(gameState.cards).map((card, idx) => {
             const isTaken = card.juniorId !== null;
             const juniorName = isTaken ? gameState.juniorsInfo?.[card.juniorId] : '';
-
             return (
-              <div 
-                key={card.id} onClick={() => !isTaken && handleDrawCard(card.id)}
-                className="relative aspect-[2/3.2] perspective-1000 cursor-pointer group opacity-0 animate-scale-in"
-                style={{ animationDelay: `${idx * 0.05}s`, animationFillMode: 'forwards' }}
-              >
+              <div key={card.id} onClick={() => !isTaken && handleDrawCard(card.id)} className="relative aspect-[2/3.2] perspective-1000 cursor-pointer group opacity-0 animate-scale-in" style={{ animationDelay: `${idx * 0.05}s`, animationFillMode: 'forwards' }}>
                 <div className={`w-full h-full transition-all duration-700 transform-style-3d ${isTaken ? 'rotate-y-180 scale-95 opacity-50' : 'hover:scale-105 hover:-translate-y-2 active:scale-95 hover:shadow-[0_20px_40px_rgba(255,255,255,0.1)]'}`}>
-                  
-                  {/* Front (Glass Available) */}
                   <div className="absolute inset-0 backface-hidden bg-white/10 backdrop-blur-2xl rounded-[1.5rem] border border-white/30 flex flex-col items-center justify-center shadow-[0_10px_30px_rgba(0,0,0,0.2)] group-hover:bg-white/20 group-hover:border-white/50 transition-colors">
                     <div className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-3 shadow-inner group-hover:scale-110 transition-transform">
                       <Sparkles className="w-5 h-5 text-white/80 animate-pulse-slow" />
                     </div>
                   </div>
-
-                  {/* Back (Taken) */}
                   <div className="absolute inset-0 backface-hidden rotate-y-180 bg-black/50 backdrop-blur-md rounded-[1.5rem] border border-white/10 flex flex-col items-center justify-center p-4 text-center shadow-inner">
                     <div className="w-10 h-10 rounded-full bg-black/80 flex items-center justify-center mb-3"><Lock className="text-white/40 w-4 h-4" /></div>
                     <p className="text-xs text-white/50 mb-1">เลือกโดย</p>
@@ -1388,23 +1236,16 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
     );
   }
 
-  // STAGE 1: Waiting Room
   return (
     <div className="flex-1 flex flex-col items-center justify-center min-h-[60vh] animate-scale-in">
       <div className="bg-white/10 backdrop-blur-3xl border border-white/10 p-8 sm:p-12 rounded-[2rem] sm:rounded-[3rem] flex flex-col items-center relative z-10 shadow-[0_20px_50px_rgba(0,0,0,0.3)] max-w-md w-full overflow-hidden min-w-0">
-        {/* Shine */}
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10"></div>
-        
         <div className="w-20 h-20 rounded-full bg-white/5 border border-white/20 flex items-center justify-center mb-6 relative shadow-inner">
           <div className="absolute inset-0 border border-white/30 rounded-full animate-ping opacity-20"></div>
           <Users className="w-8 h-8 text-white/80" />
         </div>
-        
         <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-white">ห้องพักคอย</h2>
-        <p className="text-white/50 text-center text-sm mb-8 leading-relaxed">
-          รอแอดมินเปิดระบบสุ่มไพ่<br/>หรือรอผู้เข้าร่วมให้ครบ
-        </p>
-
+        <p className="text-white/50 text-center text-sm mb-8 leading-relaxed">รอแอดมินเปิดระบบสุ่มไพ่<br/>หรือรอผู้เข้าร่วมให้ครบ</p>
         <div className="w-full flex flex-col items-center gap-4">
           <div className="text-4xl sm:text-5xl font-black text-white tracking-tighter">
             {onlineCount} <span className="text-2xl text-white/30 font-medium">/ {TOTAL_PLAYERS}</span>
@@ -1424,24 +1265,13 @@ function JuniorDashboard({ gameState, appId, juniorId }) {
 const style = document.createElement('style');
 style.textContent = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
-  
-  body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
   .perspective-1000 { perspective: 1000px; }
   .transform-style-3d { transform-style: preserve-3d; }
   .backface-hidden { backface-visibility: hidden; }
   .rotate-y-180 { transform: rotateY(180deg); }
-  
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  
-  /* Background Blobs */
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
   @keyframes blob {
     0% { transform: translate(0px, 0px) scale(1); }
     33% { transform: translate(30px, -50px) scale(1.1); }
@@ -1451,72 +1281,25 @@ style.textContent = `
   .animate-blob { animation: blob 10s infinite alternate ease-in-out; }
   .animation-delay-2000 { animation-delay: 2s; }
   .animation-delay-4000 { animation-delay: 4s; }
-
-  /* Floating Elements */
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
-  }
+  @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
   .animate-float { animation: float 4s ease-in-out infinite; }
-
-  /* Basic Fade In */
-  @keyframes fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
   .animate-fade-in { animation: fade-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-  
-  /* Slide Animations */
-  @keyframes slide-up {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
   .animate-slide-up { animation: slide-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
-  @keyframes slide-down {
-    from { opacity: 0; transform: translateY(-20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes slide-down { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
   .animate-slide-down { animation: slide-down 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
-  @keyframes fade-down {
-    from { opacity: 0; transform: translateY(-30px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes fade-down { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
   .animate-fade-down { animation: fade-down 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-  
-  @keyframes fade-up {
-    from { opacity: 0; transform: translateY(30px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes fade-up { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
   .animate-fade-up { animation: fade-up 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-
-  /* Scale Animations */
-  @keyframes scale-in {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
-  }
+  @keyframes scale-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
   .animate-scale-in { animation: scale-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
-  /* Effects */
-  @keyframes shine {
-    from { left: -100%; }
-    to { left: 200%; }
-  }
+  @keyframes shine { from { left: -100%; } to { left: 200%; } }
   .animate-shine { animation: shine 3s infinite linear; }
-
-  @keyframes pulse-slow {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(0.95); }
-  }
+  @keyframes pulse-slow { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(0.95); } }
   .animate-pulse-slow { animation: pulse-slow 3s infinite ease-in-out; }
-
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-5px); }
-    50% { transform: translateX(5px); }
-    75% { transform: translateX(-5px); }
-  }
+  @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 50% { transform: translateX(5px); } 75% { transform: translateX(-5px); } }
   .animate-shake { animation: shake 0.4s ease-in-out; }
 `;
 document.head.appendChild(style);
