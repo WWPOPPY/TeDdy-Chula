@@ -3,48 +3,104 @@ import { Users, Lock, Unlock, Eye, Settings, Play, Sparkles, Clock, AlertCircle,
 
 // --- 1. Cloud Database Initialization (Google Sheets API) ---
 console.log('[SYSTEM] เชื่อมต่อระบบฐานข้อมูลกับ Google Sheets สำเร็จ!');
+// --- 1. Cloud Database Initialization (Google Sheets API) ---
+console.log('[SYSTEM] เปลี่ยนจาก Mock เป็น Google Sheets Cloud Database');
 
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxWv2TM2JeEP2Wsf4R8HVJNBFuHymD8u3WYybrQBa4zXQj8DTx6Tr5YfMHcAisxuC_W/exec';
+// 📌 1. นำลิงก์ Web App URL จาก Google Apps Script มาใส่ตรงนี้
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxWv2TM2JeEP2Wsf4R8HVJNBFuHymD8u3WYybrQBa4zXQj8DTx6Tr5YfMHcAisxuC_W/exec'; 
 
-const db = {};
+const db = {}; 
 const auth = {};
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'edtech-code-reveal-liquid-v2';
-const assetUrl = (fileName) => `${import.meta.env.BASE_URL}${fileName}`;
-const LOGO_URL = assetUrl('logo.jpg');
-const APP_TIME_ZONE = 'Asia/Bangkok';
-const BANGKOK_OFFSET_MINUTES = 7 * 60;
-const BANGKOK_OFFSET_MS = BANGKOK_OFFSET_MINUTES * 60 * 1000;
-const AUTH_STORAGE_KEY = 'edtech-reveal-auth';
+const LOGO_URL = '/logo.jpg'; // เปลี่ยนเป็นนามสกุลไฟล์จริงของน้อง (เช่น .jpg, .png)
 
-const shiftToBangkokWallClock = (date = new Date()) => new Date(date.getTime() + BANGKOK_OFFSET_MS);
-
-const bangkokWallClockToIso = (bangkokDate) => {
-  if (!(bangkokDate instanceof Date) || Number.isNaN(bangkokDate.getTime())) return '';
-  return new Date(Date.UTC(
-    bangkokDate.getUTCFullYear(),
-    bangkokDate.getUTCMonth(),
-    bangkokDate.getUTCDate(),
-    bangkokDate.getUTCHours(),
-    bangkokDate.getUTCMinutes(),
-    bangkokDate.getUTCSeconds(),
-    bangkokDate.getUTCMilliseconds()
-  ) - BANGKOK_OFFSET_MS).toISOString();
+// Mock Auth API
+const signInAnonymously = async () => ({ user: { uid: 'anon' } });
+const signInWithCustomToken = async () => ({ user: { uid: 'custom' } });
+const onAuthStateChanged = (auth, cb) => {
+  setTimeout(() => cb({ uid: 'online-user' }), 100);
+  return () => {};
 };
 
-const parseBangkokDateTimeLocalToIso = (value) => {
-  if (!value) return '';
-  const [datePart, timePart = '00:00'] = value.split('T');
-  const [yearText, monthText, dayText] = datePart.split('-');
-  const [hourText = '0', minuteText = '0', secondText = '0'] = timePart.split(':');
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  const second = Number(secondText);
-  if ([year, month, day, hour, minute, second].some(Number.isNaN)) return '';
-  const bangkokWallClock = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-  return bangkokWallClockToIso(bangkokWallClock);
+// --- Cloud Database Logic ---
+const doc = (db, ...path) => path.join('/');
+let cachedData = null; // เก็บ Cache ลดการกระตุก
+
+const getDoc = async (docRef) => {
+  try {
+    const res = await fetch(SHEET_API_URL);
+    const data = await res.json();
+    cachedData = data;
+    return { exists: () => Object.keys(data).length > 0, data: () => data };
+  } catch (e) {
+    console.error("Fetch Error:", e);
+    return { exists: () => false, data: () => ({}) };
+  }
+};
+
+const setDoc = async (docRef, data) => {
+  cachedData = data;
+  window.dispatchEvent(new Event('cloud-db-update')); 
+  fetch(SHEET_API_URL, { method: 'POST', body: JSON.stringify(data) }).catch(e => console.error(e));
+};
+
+const updateDoc = async (docRef, updates) => {
+  try {
+    const res = await fetch(SHEET_API_URL);
+    let current = await res.json();
+
+    Object.keys(updates).forEach(key => {
+      const parts = key.split('.');
+      let temp = current;
+      for(let i = 0; i < parts.length - 1; i++) {
+        if (!temp[parts[i]]) temp[parts[i]] = {};
+        temp = temp[parts[i]];
+      }
+      temp[parts[parts.length - 1]] = updates[key];
+    });
+
+    cachedData = current;
+    window.dispatchEvent(new Event('cloud-db-update')); 
+    
+    fetch(SHEET_API_URL, { method: 'POST', body: JSON.stringify(current) });
+  } catch (e) { console.error("Update Error:", e); }
+};
+
+// Real-time Sync (ดึงข้อมูลใหม่ทุกๆ 2 วินาที)
+const onSnapshot = (docRef, callback) => {
+  let lastDataStr = "";
+  
+  const triggerFetch = async () => {
+    try {
+      const res = await fetch(SHEET_API_URL);
+      const data = await res.json();
+      const currentStr = JSON.stringify(data);
+      if (currentStr !== lastDataStr) {
+        lastDataStr = currentStr;
+        cachedData = data;
+        callback({ exists: () => true, data: () => data });
+      }
+    } catch(e) {}
+  };
+
+  triggerFetch(); 
+  const interval = setInterval(triggerFetch, 2000); // 📌 Refresh rate
+
+  const localTrigger = () => {
+    if (cachedData) {
+      const currentStr = JSON.stringify(cachedData);
+      if (currentStr !== lastDataStr) {
+        lastDataStr = currentStr;
+        callback({ exists: () => true, data: () => cachedData });
+      }
+    }
+  };
+  window.addEventListener('cloud-db-update', localTrigger);
+
+  return () => {
+    clearInterval(interval);
+    window.removeEventListener('cloud-db-update', localTrigger);
+  };
 };
 
 const formatBangkokDateTimeLocalValue = (dateStr) => {
